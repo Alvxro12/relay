@@ -1,0 +1,34 @@
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: relay-db
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${DB_PASSWORD}
+      MSSQL_PID: "Developer"
+    ports:
+      - "14330:1433"
+    volumes:
+      - relay-db-data:/var/opt/mssql
+    healthcheck:
+      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "${DB_PASSWORD}" -C -Q "SELECT 1" -b
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  app:
+    build: src/main/resources
+    container_name: relay-app
+    depends_on:
+      db:
+        condition: service_healthy    # no arranca hasta que la DB pase el healthcheck
+    environment:
+      SPRING_DATASOURCE_URL: "jdbc:sqlserver://db:1433;databaseName=relay;encrypt=true;trustServerCertificate=true"
+      SPRING_DATASOURCE_USERNAME: "sa"
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "8080:8080"
+
+volumes:
+  relay-db-data:
