@@ -1,5 +1,7 @@
 package io.github.alvxro12.relay.shared.error;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -12,6 +14,9 @@ import java.util.List;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
 
     // @Valid falló: amount negativo, currency mal formada, etc.
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -49,6 +54,7 @@ public class GlobalExceptionHandler {
     // red de seguridad: cualquier cosa no anticipada
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception ex) {
+        log.error("Unexpected error", ex);
         ErrorResponse body = ErrorResponse.of(
                 500, "Internal Server Error", "Something went wrong"
         );

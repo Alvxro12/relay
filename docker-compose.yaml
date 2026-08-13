@@ -17,6 +17,21 @@ services:
       retries: 10
       start_period: 30s
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: relay-rabbitmq
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    volumes:
+      - relay-rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   app:
     build: src/main/resources
     container_name: relay-app
@@ -32,3 +47,4 @@ services:
 
 volumes:
   relay-db-data:
+  relay-rabbitmq-data:
