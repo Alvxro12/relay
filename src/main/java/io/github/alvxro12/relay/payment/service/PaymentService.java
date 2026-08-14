@@ -1,9 +1,16 @@
-package io.github.alvxro12.relay.payment;
+package io.github.alvxro12.relay.payment.service;
 
+import io.github.alvxro12.relay.payment.Payment;
+import io.github.alvxro12.relay.payment.PaymentRepository;
+import io.github.alvxro12.relay.payment.PaymentResult;
+import io.github.alvxro12.relay.payment.PaymentStatus;
 import io.github.alvxro12.relay.payment.dto.CreatePaymentRequest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -55,5 +62,10 @@ public class PaymentService {
     public Optional<Payment> findById(UUID merchantId, UUID paymentId) {
         return paymentRepository.findById(paymentId)
                 .filter(p -> p.getMerchantId().equals(merchantId));
+    }
+
+    public List<Payment> findPaymentsNeedingReview(long olderThanMinutes) {
+        Instant threshold = Instant.now().minus(olderThanMinutes, ChronoUnit.MINUTES);
+        return paymentRepository.findByStatusAndUpdatedAtBefore(PaymentStatus.UNKNOWN, threshold);
     }
 }

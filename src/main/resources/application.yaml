@@ -2,6 +2,12 @@ spring:
   application:
     name: Relay
 
+  rabbitmq:
+    host: localhost
+    port: 5673
+    username: guest
+    password: guest
+
   datasource:
     url: jdbc:sqlserver://localhost:14330;databaseName=relay;encrypt=true;trustServerCertificate=true
     username: "sa"

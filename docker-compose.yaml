@@ -10,8 +10,24 @@ services:
       - "14330:1433"
     volumes:
       - relay-db-data:/var/opt/mssql
+      - ./db/init:/mssql-server-setup-scripts.d:ro   # scripts corridos una sola vez, solo si el volumen de datos está vacío
     healthcheck:
       test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "${DB_PASSWORD}" -C -Q "SELECT 1" -b
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: relay-rabbitmq
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    volumes:
+      - relay-rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
       interval: 10s
       timeout: 5s
       retries: 10
@@ -32,3 +48,4 @@ services:
 
 volumes:
   relay-db-data:
+  relay-rabbitmq-data:
