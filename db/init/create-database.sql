@@ -1,0 +1,5 @@
+IF DB_ID(N'relay') IS NULL
+BEGIN
+    CREATE DATABASE relay;
+END
+GO

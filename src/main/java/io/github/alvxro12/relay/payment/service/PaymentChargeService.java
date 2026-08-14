@@ -1,5 +1,9 @@
-package io.github.alvxro12.relay.payment;
+package io.github.alvxro12.relay.payment.service;
 
+import io.github.alvxro12.relay.payment.ChargeRequestedEvent;
+import io.github.alvxro12.relay.payment.Payment;
+import io.github.alvxro12.relay.payment.PaymentRepository;
+import io.github.alvxro12.relay.payment.PaymentStatus;
 import io.github.alvxro12.relay.provider.ChargeRequest;
 import io.github.alvxro12.relay.provider.ChargeResult;
 import io.github.alvxro12.relay.provider.ChargeStatus;

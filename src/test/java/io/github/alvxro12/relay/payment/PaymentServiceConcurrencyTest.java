@@ -1,6 +1,7 @@
 package io.github.alvxro12.relay.payment;
 
 import io.github.alvxro12.relay.payment.dto.CreatePaymentRequest;
+import io.github.alvxro12.relay.payment.service.PaymentService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

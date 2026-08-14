@@ -1,6 +1,7 @@
 package io.github.alvxro12.relay.payment;
 
 import io.github.alvxro12.relay.payment.dto.CreatePaymentRequest;
+import io.github.alvxro12.relay.payment.service.PaymentService;
 import io.github.alvxro12.relay.provider.ChargeStatus;
 import io.github.alvxro12.relay.provider.FakePaymentProvider;
 import org.junit.jupiter.api.BeforeEach;

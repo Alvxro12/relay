@@ -1,5 +1,10 @@
-package io.github.alvxro12.relay.payment;
+package io.github.alvxro12.relay.payment.service;
 
+import io.github.alvxro12.relay.payment.ChargeRequestedEvent;
+import io.github.alvxro12.relay.payment.Payment;
+import io.github.alvxro12.relay.payment.PaymentEventPublisher;
+import io.github.alvxro12.relay.payment.PaymentRepository;
+import io.github.alvxro12.relay.payment.PaymentStatus;
 import io.github.alvxro12.relay.payment.dto.CreatePaymentRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
