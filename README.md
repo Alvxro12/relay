@@ -228,10 +228,15 @@ RabbitMQ Management: `http://localhost:15673`
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| `POST` | `/payments` | Crea un pago y dispara su procesamiento asíncrono. Requiere `Idempotency-Key` y `X-Merchant-Id`. |
-| `GET` | `/payments/{id}` | Consulta un pago por ID. Devuelve 404 si pertenece a otro merchant. |
+| `POST` | `/payments` | Crea un pago y dispara su procesamiento asíncrono. Requiere `Idempotency-Key` y `X-Merchant-Id`. 201 si es nuevo, 200 si es replay del mismo body, 409 si la misma `Idempotency-Key` llega con un body distinto. |
+| `GET` | `/payments/{id}` | Consulta un pago por ID. Requiere `X-Merchant-Id`. Devuelve 404 si pertenece a otro merchant. |
+| `GET` | `/payments/needs-review` | Pagos del merchant que quedaron en `UNKNOWN` y necesitan revisión manual. Requiere `X-Merchant-Id` y filtra por él. Parámetro opcional `olderThanMinutes` (default 15). |
+| `POST` | `/webhooks/provider` | Recibe webhooks del proveedor. Requiere el header `X-Signature` con el HMAC-SHA256 del cuerpo crudo. 401 si la firma no valida, 200 tanto para evento nuevo como duplicado, 400 si el cuerpo no es parseable. |
 
-`X-Merchant-Id` es un placeholder temporal hasta implementar autenticación real.
+`X-Merchant-Id` es un placeholder temporal hasta implementar autenticación real: hoy
+es un header que el cliente manda y el servidor cree. El scope por merchant de
+`/payments/{id}` y `/payments/needs-review` es una separación de datos, no una barrera
+de seguridad, hasta que exista autenticación de verdad.
 
 ## Estado actual
 

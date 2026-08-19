@@ -14,5 +14,11 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     // Clave de correlación de los webhooks del proveedor.
     Optional<Payment> findByProviderTransactionId(String providerTransactionId);
 
+    // Sin scope de merchant: la usa el job de reconciliación, que mira todo el sistema.
     List<Payment> findByStatusAndUpdatedAtBefore(PaymentStatus status, Instant threshold);
+
+    // Con scope de merchant: la usa el endpoint de revisión, donde un comercio solo
+    // puede ver lo suyo.
+    List<Payment> findByMerchantIdAndStatusAndUpdatedAtBefore(
+            UUID merchantId, PaymentStatus status, Instant threshold);
 }
