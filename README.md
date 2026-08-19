@@ -113,6 +113,12 @@ PaymentProvider
   |
   +---- SUCCESS ------> SUCCEEDED
   |
+  +---- ACCEPTED -----> AWAITING_CONFIRMATION
+  |                       |
+  |                       | webhook del proveedor
+  |                       v
+  |                     SUCCEEDED / FAILED
+  |
   +---- DECLINED -----> FAILED
   |
   +---- TIMEOUT ------> UNKNOWN
@@ -120,7 +126,21 @@ PaymentProvider
   +---- SERVER_ERROR -> UNKNOWN
 ```
 
-Estados: `PENDING` → `PROCESSING` → `SUCCEEDED` / `FAILED` / `UNKNOWN`
+Estados:
+
+```text
+PENDING ──claim──> PROCESSING ──┬──> SUCCEEDED
+                                ├──> FAILED
+                                ├──> UNKNOWN
+                                └──> AWAITING_CONFIRMATION ──webhook──> SUCCEEDED / FAILED
+```
+
+`PENDING` es "todavía no se cobró" y `AWAITING_CONFIRMATION` es "el proveedor aceptó
+el cobro y la confirmación llega por webhook". Son estados distintos a propósito: la
+guarda que toma un pago para cobrarlo es `status == PENDING`, así que meter los dos
+en el mismo valor haría que se recobrara un pago que el proveedor ya aceptó.
+
+`SUCCEEDED` y `FAILED` son terminales: ningún webhook tardío los revierte.
 
 ## Manejo de fallos
 
@@ -178,11 +198,11 @@ RabbitMQ Management: `http://localhost:15673`
 - Creación y consulta de pagos
 - Idempotencia bajo concurrencia real (test con `ExecutorService` + `CountDownLatch`)
 - Persistencia de estados del pago
-- Proveedor simulado (`FakePaymentProvider`) con los 4 resultados posibles
+- Proveedor simulado (`FakePaymentProvider`) con los 5 resultados posibles
 - Procesamiento asíncrono mediante RabbitMQ
 - Publicación de eventos después del commit (`AFTER_COMMIT`)
 - Reintentos limitados + dead-letter queue
-- Tests de integración con Awaitility cubriendo los 4 caminos de resultado
+- Tests de integración con Awaitility cubriendo los 5 caminos de resultado
 - Entorno reproducible con Docker
 
 ### Próximo

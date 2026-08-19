@@ -17,6 +17,13 @@ import java.util.UUID;
         uniqueConstraints = @UniqueConstraint(
                 name = "uk_merchant_idempotency_key",
                 columnNames = {"merchant_id", "idempotency_key"}
+        ),
+        // Índice NO único a propósito: en SQL Server un UNIQUE trata los NULL
+        // como iguales y admite uno solo, y la mayoría de los pagos tienen
+        // provider_transaction_id en NULL (ver el campo más abajo).
+        indexes = @Index(
+                name = "ix_payments_provider_transaction_id",
+                columnList = "provider_transaction_id"
         )
 )
 @EntityListeners(AuditingEntityListener.class)
@@ -46,6 +53,20 @@ public class Payment {
     private String idempotencyKey;
 
     private String reference;     // opcional, referencia del merchant
+
+    // Id de la transacción en el proveedor: es la clave con la que los webhooks
+    // correlacionan contra este pago. Nullable a propósito: un TIMEOUT nunca lo
+    // recibe (el provider lanza excepción, no hay ChargeResult) y un SERVER_ERROR
+    // lo devuelve en null por diseño.
+    @Column(name = "provider_transaction_id")
+    private String providerTransactionId;
+
+    // Optimistic locking: el consumer de charge y el de webhook pueden escribir
+    // esta misma fila. El que pierde recibe OptimisticLockingFailureException,
+    // el interceptor de reintentos lo reprocesa y al releer la fila vuelve a
+    // pasar por las guardas de estado en vez de pisar el resultado del otro.
+    @Version
+    private Long version;
 
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)

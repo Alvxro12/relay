@@ -11,5 +11,8 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
 
     Optional<Payment> findByMerchantIdAndIdempotencyKey(UUID merchantId, String idempotencyKey);
 
+    // Clave de correlación de los webhooks del proveedor.
+    Optional<Payment> findByProviderTransactionId(String providerTransactionId);
+
     List<Payment> findByStatusAndUpdatedAtBefore(PaymentStatus status, Instant threshold);
 }

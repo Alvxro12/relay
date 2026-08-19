@@ -24,3 +24,9 @@ spring:
 
 server:
   port: 8080
+
+relay:
+  webhook:
+    # Secreto compartido con el proveedor para firmar los webhooks (HMAC-SHA256).
+    # Nunca hardcodeado: viene del entorno, ver .env.example.
+    secret: "${WEBHOOK_SECRET}"
