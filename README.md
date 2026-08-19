@@ -159,21 +159,63 @@ Durante las pruebas se detectó un mensaje huérfano que fue redespachado más d
 - Spring Boot
 - Spring Data JPA / Hibernate
 - SQL Server
+- Flyway (migraciones versionadas)
 - RabbitMQ / Spring AMQP
 - Docker / Docker Compose
 - JUnit, Spring Boot Test, Awaitility
 
 ## Cómo levantarlo
 
-Requiere Docker Desktop.
+Requiere Docker Desktop y JDK 21.
+
+### 1. Variables de entorno
 
 ```bash
 cp .env.example .env
-# editá .env con tu propia contraseña de SQL Server
-
-docker compose up -d db rabbitmq
-mvn spring-boot:run
+# editá .env: DB_PASSWORD (contraseña de SQL Server) y WEBHOOK_SECRET
 ```
+
+Las dos son **obligatorias**: sin ellas la app no levanta y `mvn test` falla.
+Docker Compose lee `.env` solo, pero **Spring Boot no**, así que hay que cargarlas
+en la terminal desde la que corras Maven:
+
+```bash
+# bash / Git Bash
+set -a && . ./.env && set +a
+```
+
+```powershell
+# PowerShell
+Get-Content .env | Where-Object { $_ -match '^\s*[^#].*=' } | ForEach-Object {
+    $n, $v = $_ -split '=', 2
+    [Environment]::SetEnvironmentVariable($n.Trim(), $v.Trim())
+}
+```
+
+En IntelliJ no alcanza con el `.env`: van en la Run Configuration (tanto la de la
+aplicación como la plantilla de JUnit), en *Environment variables*.
+
+### 2. Infraestructura
+
+```bash
+docker compose up -d
+```
+
+Levanta SQL Server, RabbitMQ y `db-init`, un contenedor de un solo uso que espera
+el healthcheck de la base, crea la base `relay` y termina (verificá que salió con
+`docker compose ps -a`). Compose es solo infraestructura: la aplicación se corre
+aparte.
+
+### 3. Aplicación
+
+```bash
+mvn spring-boot:run   # o correrla desde el IDE
+mvn test              # la suite completa
+```
+
+No hay ningún paso de DDL manual en ningún momento: `db-init` crea la base y
+Flyway crea el esquema completo en el primer arranque. Sobre una DB que ya existe
+de antes, Flyway la marca como baseline y no la toca.
 
 API: `http://localhost:8080`
 RabbitMQ Management: `http://localhost:15673`
@@ -204,6 +246,7 @@ RabbitMQ Management: `http://localhost:15673`
 - Reintentos limitados + dead-letter queue
 - Tests de integración con Awaitility cubriendo los 5 caminos de resultado
 - Entorno reproducible con Docker
+- Esquema versionado con Flyway (`ddl-auto: validate`, sin DDL manual)
 
 ### Próximo
 
@@ -215,13 +258,12 @@ RabbitMQ Management: `http://localhost:15673`
 
 - Integración con un proveedor real en modo test (ej. Stripe test mode) — validación de que la abstracción `PaymentProvider` realmente desacopla el dominio de la infraestructura del proveedor
 - CI/CD con GitHub Actions
-- Migraciones versionadas con Flyway (reemplazo de `ddl-auto`)
 - Autenticación real (reemplazo de `X-Merchant-Id`)
 - Documentación OpenAPI
 - Logs estructurados y observabilidad básica
 
 ## Notas de desarrollo
 
-Durante el desarrollo se utiliza `ddl-auto` para agilizar la creación del esquema en el entorno local. La migración a Flyway está contemplada para evitar depender de la generación automática del esquema.
+El esquema está versionado con Flyway y `ddl-auto` quedó en `validate`: Hibernate verifica que la DB coincida con las entidades, pero no la modifica. Se migró después de acumular dos rondas de DDL manual que `ddl-auto: update` no sabía aplicar —agregar `version NOT NULL` a una tabla con filas, y actualizar el CHECK constraint de `status` al sumar un estado al enum—. La segunda rompió tres tests en silencio: el CHECK viejo rechazaba el estado nuevo y el cobro quedaba trabado en `PROCESSING`.
 
 El objetivo del proyecto no es implementar un sistema de pagos completo ni competir con un payment processor. El objetivo es explorar los problemas de ingeniería que aparecen al orquestar operaciones de pago entre un comercio y proveedores externos: consistencia, idempotencia, concurrencia, procesamiento asíncrono y recuperación ante fallos.

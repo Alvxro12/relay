@@ -48,6 +48,24 @@
 			<scope>runtime</scope>
 		</dependency>
 		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-core</artifactId>
+		</dependency>
+		<!-- El soporte de SQL Server vive en un artefacto aparte desde Flyway 10. -->
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-sqlserver</artifactId>
+		</dependency>
+		<!--
+			Spring Boot 4 sacó las autoconfiguraciones de spring-boot-autoconfigure a
+			un módulo por tecnología. Sin esta, flyway-core queda en el classpath pero
+			nadie lo arranca: las migraciones no corren y no se loguea nada.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-flyway</artifactId>
+		</dependency>
+		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>

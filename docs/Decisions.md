@@ -86,7 +86,27 @@ después por webhook) necesitaba un estado destino. Mapearlo a `PENDING` era lo 
 consumer recobrara un pago que el proveedor ya aceptó.
 **Consecuencias**: es el primer estado no terminal desde el que un webhook puede resolver
 un pago, así que la ruta feliz del webhook pasó a ser alcanzable end-to-end y los tests
-dejaron de sembrar pagos a mano. Requiere DDL: el CHECK constraint que genera Hibernate
-sobre `status` no lo actualiza `ddl-auto: update` (ver sección 6 de
-`docs/features/webhooks.md`). Un pago que queda esperando un webhook que nunca llega
-tampoco lo levanta la reconciliación actual.
+dejaron de sembrar pagos a mano. Requirió DDL sobre el CHECK constraint de `status`, que
+`ddl-auto: update` no actualizaba — el detonante de la decisión 011. Un pago que queda
+esperando un webhook que nunca llega tampoco lo levanta la reconciliación actual.
+
+## 011 — Esquema versionado con Flyway, `ddl-auto` en `validate`
+**Contexto**: `ddl-auto: update` generaba el esquema, pero no cubre todo. Se acumularon
+dos rondas de DDL manual: no agrega `version NOT NULL` a una tabla con filas, y no
+actualiza el CHECK constraint que Hibernate genera sobre `status` al sumar un valor al
+enum. Lo segundo rompió tres tests **en silencio** —sin error de arranque, el cobro
+fallaba al persistir y el pago quedaba trabado en `PROCESSING`—.
+**Decisión**: Flyway con una única `V1__initial_schema.sql` que consolida el esquema
+actual, `baseline-on-migrate: true` con `baseline-version: 1`, y `ddl-auto: validate`.
+**Razón**: el problema no fue que `update` no supiera aplicar un cambio, sino que no
+avisara que no lo había aplicado. Versionado, agregar un estado es editar una migración;
+y si alguien se olvida, `validate` lo frena en el arranque en vez de dejarlo aparecer en
+runtime. V1 se generó desde el esquema real de la DB de dev, no desde las `@Entity`: la
+DB es la que tenía los parches aplicados.
+**Consecuencias**: una sola V1 en vez de la historia de cambios reconstruida —nadie fuera
+de la máquina de desarrollo tuvo las versiones intermedias—. Sobre una DB preexistente
+Flyway baselinea en 1 y no la toca; sobre una vacía corre V1 completa. `baseline-version: 0`
+no sirve acá: dejaría el esquema en 0 y Flyway intentaría crear tablas que ya existen.
+Los PK y CHECK pasan a tener nombres estables (`pk_payments`, `ck_payments_status`) en vez
+de los autogenerados, así que una DB creada desde V1 y la de dev baselineada difieren en
+esos nombres —`validate` no los mira—.

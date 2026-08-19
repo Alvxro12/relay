@@ -103,7 +103,7 @@ Mismo criterio de subcarpetas que `payment/`: raíz para el dominio,
 | `provider/FakePaymentProvider.java` | Seams de test: `forceNextTransactionId(String)` y `onNextCharge(Runnable)` (one-shot, para reproducir la carrera). Campos a `volatile`. |
 | `resources/application.yaml` | `+ relay.webhook.secret: "${WEBHOOK_SECRET}"`. |
 | `.env` / `.env.example` | `+ WEBHOOK_SECRET`. |
-| `docker-compose.yaml` | `+ WEBHOOK_SECRET` al servicio `app`. |
+| `docker-compose.yaml` | `+ WEBHOOK_SECRET` al servicio `app`. *(Ese servicio se eliminó después: nunca llegó a funcionar —apuntaba el contexto de build a `src/main/resources` y no había Dockerfile— y compose quedó solo con infraestructura.)* |
 | `payment/PaymentChargeServiceIntegrationTest.java` | El `@BeforeEach` ahora también resetea los seams nuevos del provider. |
 
 ---
@@ -153,64 +153,52 @@ misma ventana y mandaría a la DLQ un evento perfectamente procesable.
 
 ## 6. Migración de esquema
 
-`ddl-auto: update` **no puede** agregar `version NOT NULL` a una tabla
-`payments` que ya tiene filas. En la DB de dev (9 filas) se aplicó este DDL
-aditivo, sin pérdida de datos. Hace falta en cualquier entorno con la DB ya
-creada:
+**El esquema ya no se genera ni se parchea a mano.** Está versionado con Flyway
+en `src/main/resources/db/migration/V1__initial_schema.sql`, y `ddl-auto` quedó
+en `validate`: Hibernate verifica que la DB coincida con las entidades pero no la
+modifica. Una DB vacía la construye Flyway entera desde V1; una DB que ya existe
+la marca como baseline en la versión 1 y no la toca.
 
-```sql
-ALTER TABLE payments ADD provider_transaction_id varchar(255) NULL;
-ALTER TABLE payments ADD [version] bigint NOT NULL CONSTRAINT df_payments_version DEFAULT 0 WITH VALUES;
-CREATE INDEX ix_payments_provider_transaction_id ON payments (provider_transaction_id);
-```
+El DDL manual que había acá quedó consolidado en esa V1. Lo que sigue es la razón
+histórica, porque explica por qué se migró.
 
-`webhook_events` la crea Hibernate sola. Si la tabla ya existía de una corrida
-previa a este cambio, además:
+### Por qué `ddl-auto: update` no alcanzaba
 
-```sql
-ALTER TABLE webhook_events ALTER COLUMN raw_payload NVARCHAR(MAX) NOT NULL;
-```
+Dos cosas que `update` no sabe hacer, encontradas de a una:
 
-> Cuando se declara un `columnDefinition` explícito, Hibernate lo usa tal cual y
-> descarta el `nullable = false` del `@Column`. Por eso el `NOT NULL` va dentro
-> del `columnDefinition`.
+1. **No agrega `version NOT NULL` a una tabla que ya tiene filas.** Se resolvió
+   con un `ALTER TABLE ... DEFAULT 0 WITH VALUES` a mano sobre la DB de dev.
+
+2. **No actualiza el CHECK constraint que Hibernate genera sobre `status`.**
+   Hibernate crea, a partir del enum, un constraint con nombre autogenerado
+   (`CK__payments__status__…`) que enumera los valores válidos. Al agregar
+   `AWAITING_CONFIRMATION` al enum, el constraint siguió teniendo los cinco
+   valores viejos.
+
+El segundo caso es el que justificó la migración, por *cómo* falló: no dio ningún
+error de arranque. Todo cobro `ACCEPTED` fallaba recién al persistir el resultado,
+la excepción subía sin manejar y —con el claim ya commiteado— el pago quedaba
+trabado en `PROCESSING`. Se veía como tres tests que se colgaban esperando un
+estado que nunca llegaba, no como un problema de esquema.
+
+Versionado en V1, agregar un estado al enum es editar una migración. Y si alguien
+se olvida, `validate` lo frena en el arranque en vez de dejarlo aparecer en runtime.
+
+> El `columnDefinition` explícito de `raw_payload` también tenía su gotcha: cuando
+> se declara uno, Hibernate lo usa tal cual y descarta el `nullable = false` del
+> `@Column`, por eso el `NOT NULL` iba adentro del `columnDefinition`. En V1 la
+> columna se declara directamente como `nvarchar(max) NOT NULL`.
 
 Esquema resultante de `webhook_events`:
 
 ```
-id                 uniqueidentifier  NOT NULL  (PK)
+id                 uniqueidentifier  NOT NULL  (pk_webhook_events)
 provider_event_id  varchar(255)      NOT NULL  (uk_webhook_provider_event_id, unique)
 raw_payload        nvarchar(max)     NOT NULL
-received_at        datetimeoffset    NOT NULL
-processed_at       datetimeoffset    NULL
-status             varchar(255)      NOT NULL
+received_at        datetimeoffset(7) NOT NULL
+processed_at       datetimeoffset(7) NULL
+status             varchar(255)      NOT NULL  (ck_webhook_events_status)
 ```
-
-### Estado `AWAITING_CONFIRMATION`
-
-`status` ya es `varchar(255)`, así que la columna no necesita nada. Lo que sí
-hace falta es **rehacer el CHECK constraint**: Hibernate genera uno que enumera
-los valores del enum, y `ddl-auto: update` **no lo actualiza** cuando se agrega
-un valor nuevo. Sin este DDL, todo cobro `ACCEPTED` falla al persistir el
-resultado y el pago se queda en `PROCESSING`.
-
-El constraint original tiene nombre autogenerado (`CK__payments__status__…`,
-distinto en cada DB), así que se busca por definición en vez de por nombre. El
-que se crea acá tiene nombre estable, para que la próxima vez alcance con
-dropearlo por nombre:
-
-```sql
-DECLARE @c sysname;
-SELECT @c = name FROM sys.check_constraints
- WHERE parent_object_id = OBJECT_ID('payments') AND definition LIKE '%[[]status]%';
-IF @c IS NOT NULL EXEC('ALTER TABLE payments DROP CONSTRAINT [' + @c + ']');
-
-ALTER TABLE payments ADD CONSTRAINT ck_payments_status CHECK (status IN
-    ('PENDING','PROCESSING','AWAITING_CONFIRMATION','SUCCEEDED','FAILED','UNKNOWN'));
-```
-
-> Es el argumento más concreto a favor de Flyway: este DDL es exactamente el tipo
-> de cambio que `ddl-auto: update` no sabe hacer y que no avisa que no hizo.
 
 ---
 
