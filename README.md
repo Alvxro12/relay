@@ -36,7 +36,7 @@ Esto desacopla la creación del pago de la ejecución del cobro y permite maneja
 
 ### Consistencia transaccional
 
-Los eventos de pago se publican después del commit de la transacción, mediante `ApplicationEventPublisher` + `@TransactionalEventListener(AFTER_COMMIT)`.
+Los eventos de pago se publican después del commit de la transacción: el insert registra una `TransactionSynchronization` con `TransactionSynchronizationManager.registerSynchronization(...)` y publica al broker dentro de `afterCommit()`. Ver `PaymentInsertService` y `WebhookEventInsertService`.
 
 Esto evita que el consumer procese un evento antes de que el pago sea visible en la base de datos. Durante el desarrollo se identificó y corrigió esta condición de carrera (dual-write race) mediante testing de integración.
 
@@ -101,7 +101,7 @@ PaymentController → PaymentService → PaymentInsertService
   v
 Database (commit)
   |
-  | AFTER_COMMIT
+  | afterCommit
   v
 RabbitMQ (payment.charge.queue)
   |
@@ -230,7 +230,7 @@ RabbitMQ Management: `http://localhost:15673`
 |---|---|---|
 | `POST` | `/payments` | Crea un pago y dispara su procesamiento asíncrono. Requiere `Idempotency-Key` y `X-Merchant-Id`. 201 si es nuevo, 200 si es replay del mismo body, 409 si la misma `Idempotency-Key` llega con un body distinto. |
 | `GET` | `/payments/{id}` | Consulta un pago por ID. Requiere `X-Merchant-Id`. Devuelve 404 si pertenece a otro merchant. |
-| `GET` | `/payments/needs-review` | Pagos del merchant que quedaron en `UNKNOWN` y necesitan revisión manual. Requiere `X-Merchant-Id` y filtra por él. Parámetro opcional `olderThanMinutes` (default 15). |
+| `GET` | `/payments/needs-review` | Pagos del merchant que quedaron colgados y necesitan revisión manual: `UNKNOWN`, `PROCESSING` y `AWAITING_CONFIRMATION`, cada uno medido contra su propio umbral (`relay.reconciliation.stale-after` en `application.yaml`). Requiere `X-Merchant-Id` y filtra por él. Parámetro opcional `olderThanMinutes`, que pisa los tres umbrales a la vez para una investigación puntual; sin él manda la configuración. |
 | `POST` | `/webhooks/provider` | Recibe webhooks del proveedor. Requiere el header `X-Signature` con el HMAC-SHA256 del cuerpo crudo. 401 si la firma no valida, 200 tanto para evento nuevo como duplicado, 400 si el cuerpo no es parseable. |
 
 `X-Merchant-Id` es un placeholder temporal hasta implementar autenticación real: hoy
@@ -247,17 +247,20 @@ de seguridad, hasta que exista autenticación de verdad.
 - Persistencia de estados del pago
 - Proveedor simulado (`FakePaymentProvider`) con los 5 resultados posibles
 - Procesamiento asíncrono mediante RabbitMQ
-- Publicación de eventos después del commit (`AFTER_COMMIT`)
+- Publicación de eventos después del commit (`afterCommit` de `TransactionSynchronization`)
 - Reintentos limitados + dead-letter queue
 - Tests de integración con Awaitility cubriendo los 5 caminos de resultado
 - Entorno reproducible con Docker
 - Esquema versionado con Flyway (`ddl-auto: validate`, sin DDL manual)
+- Reconciliación — job programado que **detecta y escala**, no resuelve: busca pagos colgados en `UNKNOWN`, `PROCESSING` y `AWAITING_CONFIRMATION`, cada uno con su propio umbral, loguea un WARN por estado y los deja en `GET /payments/needs-review`. No reintenta el cobro: sin API de consulta al proveedor, recobrar arriesga cobrar dos veces.
+- Webhooks — ingesta con verificación HMAC antes del 200, procesamiento asíncrono, idempotencia de eventos duplicados y guarda de estados terminales
 
 ### Próximo
 
-**Reconciliación** — job programado para resolver pagos que permanecen en `UNKNOWN`.
-
-**Webhooks** — recepción de confirmaciones del proveedor, procesamiento asíncrono, idempotencia de eventos duplicados, integración con el flujo de reconciliación.
+**Resolución de los pagos en revisión** — hoy el sistema los detecta, los escala y ahí se
+detienen: no hay nada que los saque de `UNKNOWN`, `PROCESSING` o `AWAITING_CONFIRMATION`.
+Para `PROCESSING` no reintentar es deliberado —el cobro pudo haber movido plata—, así que
+lo que falta es la contraparte operativa: una forma de que una persona cierre esos casos.
 
 ### Más adelante
 

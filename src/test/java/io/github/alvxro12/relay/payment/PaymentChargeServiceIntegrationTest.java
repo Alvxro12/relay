@@ -172,6 +172,76 @@ class PaymentChargeServiceIntegrationTest {
                 assertThat(readStatusFromDb(paymentId)).isEqualTo(PaymentStatus.SUCCEEDED.name()));
     }
 
+    /**
+     * La carrera que la guarda de {@code recordResult} tiene que cubrir. Entre el claim y
+     * el recordResult la fila queda commiteada en PROCESSING y sin lock, así que un tercero
+     * puede resolver el pago mientras el cobro está en vuelo. Acá esa escritura ajena se
+     * hace con JdbcTemplate —otra conexión, sin JPA de por medio, que es exactamente lo que
+     * vería el consumer de charge si el de webhook pudiera correlacionar antes— y después
+     * el cobro vuelve con su propio resultado. El estado terminal tiene que quedar en pie.
+     *
+     * <p>No se usa el consumer de webhook real para provocarlo porque hoy no puede: recién
+     * correlaciona cuando recordResult escribió el providerTransactionId, y para entonces
+     * la carrera ya pasó. Esa ventana es un accidente del diseño actual, no la garantía; el
+     * test ataca la garantía.
+     *
+     * <p>Se verificó que discrimina: contra el recordResult sin guarda falla con
+     * {@code expected: FAILED but was: SUCCEEDED}.
+     */
+    @Test
+    void terminalStatusWrittenMidCharge_isNotOverwrittenByTheChargeResult() throws Exception {
+        String providerTransactionId = "fake_txn_terminal_" + UUID.randomUUID();
+        CountDownLatch chargeInFlight = new CountDownLatch(1);
+        CountDownLatch releaseCharge = new CountDownLatch(1);
+
+        fakePaymentProvider.forceNextResult(ChargeStatus.SUCCESS);
+        fakePaymentProvider.forceNextTransactionId(providerTransactionId);
+        fakePaymentProvider.onNextCharge(() -> {
+            chargeInFlight.countDown();
+            try {
+                releaseCharge.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+
+        UUID merchantId = UUID.randomUUID();
+        String idempotencyKey = UUID.randomUUID().toString();
+        PaymentResult result = paymentService.createPayment(
+                merchantId, idempotencyKey, new CreatePaymentRequest(1000L, "USD", "terminal-race"));
+        UUID paymentId = result.payment().getId();
+
+        assertThat(chargeInFlight.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS))
+                .as("el consumer de charge tiene que haber entrado al provider")
+                .isTrue();
+        assertThat(readStatusFromDb(paymentId))
+                .as("el pago tiene que estar tomado y commiteado antes de la escritura ajena")
+                .isEqualTo(PaymentStatus.PROCESSING.name());
+
+        // El tercero resuelve el pago mientras el cobro sigue afuera.
+        jdbcTemplate.update("UPDATE payments SET status = ? WHERE id = ?",
+                PaymentStatus.FAILED.name(), paymentId);
+
+        releaseCharge.countDown();
+
+        // El listener no sabe nada de esa escritura y llama a recordResult igual. La
+        // aserción se sostiene en el tiempo porque el fallo sería una escritura que llega
+        // tarde: un chequeo instantáneo podría adelantarse a ella y pasar por accidente.
+        await().during(Duration.ofSeconds(2)).atMost(TIMEOUT).untilAsserted(() -> {
+            Payment payment = paymentRepository.findById(paymentId).orElseThrow();
+            assertThat(payment.getStatus())
+                    .as("el estado terminal escrito durante el cobro no se pisa")
+                    .isEqualTo(PaymentStatus.FAILED);
+
+            // El status se descarta, pero el id del proveedor no: es la única clave con la
+            // que este pago puede correlacionarse después, y el estado terminal llegó sin
+            // ella. Descartarla dejaría el pago sin correlación para siempre.
+            assertThat(payment.getProviderTransactionId())
+                    .as("la correlación con el proveedor se persiste aunque el status se descarte")
+                    .isEqualTo(providerTransactionId);
+        });
+    }
+
     private void assertFinalStatus(ChargeStatus providerResult, PaymentStatus expectedStatus) {
         fakePaymentProvider.forceNextResult(providerResult);
 

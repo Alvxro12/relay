@@ -70,6 +70,39 @@ class PaymentNeedsReviewIntegrationTest {
     }
 
     /**
+     * Los tres estados que pueden quedar colgados salen por el endpoint, cada uno contra
+     * su propio umbral, y el scope por merchant sigue valiendo para los tres —no solo
+     * para el UNKNOWN, que era el único que la consulta miraba—.
+     */
+    @Test
+    void needsReview_returnsTheThreeStatesThatCanGetStuck() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+        UUID otherMerchantId = UUID.randomUUID();
+
+        Payment unknown = stalePayment(merchantId, PaymentStatus.UNKNOWN, null, 30, ChronoUnit.MINUTES);
+        Payment processing = stalePayment(merchantId, PaymentStatus.PROCESSING, null, 30, ChronoUnit.MINUTES);
+        Payment awaiting = stalePayment(merchantId, PaymentStatus.AWAITING_CONFIRMATION,
+                "fake_txn_" + UUID.randomUUID(), 8, ChronoUnit.HOURS);
+
+        // Mismo estado y misma edad que un UNKNOWN que sí sale, pero adentro de su propia
+        // ventana: esperar un webhook media hora es el flujo feliz, no un pago colgado.
+        Payment awaitingWithinThreshold = stalePayment(merchantId, PaymentStatus.AWAITING_CONFIRMATION,
+                "fake_txn_" + UUID.randomUUID(), 30, ChronoUnit.MINUTES);
+
+        // Los estados nuevos también son datos de un comercio.
+        Payment otherMerchantProcessing = stalePayment(
+                otherMerchantId, PaymentStatus.PROCESSING, null, 30, ChronoUnit.MINUTES);
+
+        mockMvc.perform(get("/payments/needs-review").header("X-Merchant-Id", merchantId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$..id", hasItem(unknown.getId().toString())))
+                .andExpect(jsonPath("$..id", hasItem(processing.getId().toString())))
+                .andExpect(jsonPath("$..id", hasItem(awaiting.getId().toString())))
+                .andExpect(jsonPath("$..id", not(hasItem(awaitingWithinThreshold.getId().toString()))))
+                .andExpect(jsonPath("$..id", not(hasItem(otherMerchantProcessing.getId().toString()))));
+    }
+
+    /**
      * Sin el header no hay merchant contra el cual filtrar, así que la request no
      * puede resolverse: 422 vía GlobalExceptionHandler, nunca un listado sin scope.
      */
@@ -81,18 +114,24 @@ class PaymentNeedsReviewIntegrationTest {
 
     /** Un pago en UNKNOWN lo bastante viejo como para entrar en la ventana por defecto. */
     private Payment staleUnknownPayment(UUID merchantId) {
+        return stalePayment(merchantId, PaymentStatus.UNKNOWN, null, 30, ChronoUnit.MINUTES);
+    }
+
+    private Payment stalePayment(UUID merchantId, PaymentStatus status, String providerTransactionId,
+                                 long age, ChronoUnit unit) {
         Payment payment = new Payment();
         payment.setMerchantId(merchantId);
         payment.setIdempotencyKey(UUID.randomUUID().toString());
         payment.setAmount(1000L);
         payment.setCurrency("USD");
-        payment.setStatus(PaymentStatus.UNKNOWN);
+        payment.setStatus(status);
+        payment.setProviderTransactionId(providerTransactionId);
         Payment saved = paymentRepository.saveAndFlush(payment);
 
         // updated_at lo maneja la auditoría de JPA, así que se fuerza por SQL directo.
         jdbcTemplate.update(
                 "UPDATE payments SET updated_at = ? WHERE id = ?",
-                Timestamp.from(Instant.now().minus(30, ChronoUnit.MINUTES)), saved.getId());
+                Timestamp.from(Instant.now().minus(age, unit)), saved.getId());
 
         return saved;
     }

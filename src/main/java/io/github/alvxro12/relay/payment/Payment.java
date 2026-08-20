@@ -65,6 +65,11 @@ public class Payment {
     // esta misma fila. El que pierde recibe OptimisticLockingFailureException,
     // el interceptor de reintentos lo reprocesa y al releer la fila vuelve a
     // pasar por las guardas de estado en vez de pisar el resultado del otro.
+    //
+    // No cubre la ventana del claim-then-call: entre el claim y el recordResult
+    // la fila queda commiteada y sin lock durante todo el cobro, y recordResult
+    // carga la entidad fresca, así que no hay versión vieja con la que chocar.
+    // Esa carrera la cubre la guarda de estado terminal de recordResult.
     @Version
     private Long version;
 

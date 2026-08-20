@@ -41,6 +41,18 @@ server:
   port: 8080
 
 relay:
+  reconciliation:
+    # Cuánto puede quedarse un pago en cada estado antes de contar como colgado. Un
+    # umbral por estado porque los tres tardan cosas distintas por diseño: PROCESSING
+    # dura lo que dura la llamada al proveedor (segundos), mientras que
+    # AWAITING_CONFIRMATION espera un webhook que puede tardar horas sin que nada esté
+    # mal. Medirlos con la misma vara haría sonar la alerta sobre el flujo feliz.
+    # Formato de Duration de Spring: 30s, 2m, 6h.
+    stale-after:
+      unknown: 15m
+      processing: 2m
+      awaiting-confirmation: 6h
+
   webhook:
     # Secreto compartido con el proveedor para firmar los webhooks (HMAC-SHA256).
     # Nunca hardcodeado: viene del entorno, ver .env.example.
