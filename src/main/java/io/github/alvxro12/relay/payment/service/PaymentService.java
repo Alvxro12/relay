@@ -64,8 +64,15 @@ public class PaymentService {
                 .filter(p -> p.getMerchantId().equals(merchantId));
     }
 
-    public List<Payment> findPaymentsNeedingReview(long olderThanMinutes) {
+    /**
+     * Pagos del merchant que quedaron sin resolver y necesitan revisión manual.
+     *
+     * <p>El scope por merchant no es opcional: son datos de un comercio y un comercio
+     * no tiene por qué ver los de otro. Mismo criterio que {@link #findById}.
+     */
+    public List<Payment> findPaymentsNeedingReview(UUID merchantId, long olderThanMinutes) {
         Instant threshold = Instant.now().minus(olderThanMinutes, ChronoUnit.MINUTES);
-        return paymentRepository.findByStatusAndUpdatedAtBefore(PaymentStatus.UNKNOWN, threshold);
+        return paymentRepository.findByMerchantIdAndStatusAndUpdatedAtBefore(
+                merchantId, PaymentStatus.UNKNOWN, threshold);
     }
 }

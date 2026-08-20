@@ -2,7 +2,6 @@ package io.github.alvxro12.relay.payment.controller;
 
 import io.github.alvxro12.relay.payment.Payment;
 import io.github.alvxro12.relay.payment.PaymentResult;
-import io.github.alvxro12.relay.payment.PaymentStatus;
 import io.github.alvxro12.relay.payment.dto.CreatePaymentRequest;
 import io.github.alvxro12.relay.payment.dto.PaymentResponse;
 import io.github.alvxro12.relay.payment.service.PaymentService;
@@ -11,8 +10,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.URI;
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 
@@ -59,9 +56,10 @@ public class PaymentController {
 
     @GetMapping("/needs-review")
     public ResponseEntity<List<PaymentResponse>> needsReview(
+            @RequestHeader("X-Merchant-Id") UUID merchantId,
             @RequestParam(defaultValue = "15") long olderThanMinutes
     ) {
-        List<Payment> payments = paymentService.findPaymentsNeedingReview(olderThanMinutes);
+        List<Payment> payments = paymentService.findPaymentsNeedingReview(merchantId, olderThanMinutes);
         List<PaymentResponse> response = payments.stream().map(PaymentResponse::from).toList();
         return ResponseEntity.ok(response);
     }

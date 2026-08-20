@@ -14,9 +14,24 @@ spring:
     password: "${DB_PASSWORD}"
     driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
 
+  # El esquema lo versiona Flyway (src/main/resources/db/migration), no Hibernate.
+  flyway:
+    # La DB de dev ya tiene las tablas creadas por ddl-auto y los parches manuales.
+    # baseline-on-migrate la marca en vez de fallar, y la marca en 1: el esquema que
+    # ya tiene ES el de V1, así que V1 queda como aplicada y no se intenta correr.
+    # Con baseline-version 0 quedaría en 0 y Flyway trataría de crear tablas que ya
+    # existen. Una DB vacía no baselinea nunca —baseline-on-migrate solo aplica a un
+    # esquema no vacío—, así que ahí V1 corre normalmente y crea todo desde cero.
+    baseline-on-migrate: true
+    baseline-version: 1
+
   jpa:
     hibernate:
-      ddl-auto: update       # dev only
+      # validate, no update: Hibernate verifica que el esquema coincida con las
+      # entidades pero no lo toca. Si esto falla, la migración no refleja el
+      # esquema real y hay que corregir la migración —nunca bajar a `none`, que
+      # apagaría justamente el chequeo que avisa del problema.
+      ddl-auto: validate
     show-sql: true
     properties:
       hibernate:
@@ -24,3 +39,9 @@ spring:
 
 server:
   port: 8080
+
+relay:
+  webhook:
+    # Secreto compartido con el proveedor para firmar los webhooks (HMAC-SHA256).
+    # Nunca hardcodeado: viene del entorno, ver .env.example.
+    secret: "${WEBHOOK_SECRET}"
