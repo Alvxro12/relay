@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
@@ -57,9 +58,14 @@ public class PaymentController {
     @GetMapping("/needs-review")
     public ResponseEntity<List<PaymentResponse>> needsReview(
             @RequestHeader("X-Merchant-Id") UUID merchantId,
-            @RequestParam(defaultValue = "15") long olderThanMinutes
+            @RequestParam(required = false) Long olderThanMinutes
     ) {
-        List<Payment> payments = paymentService.findPaymentsNeedingReview(merchantId, olderThanMinutes);
+        // Sin el parámetro manda el umbral configurado de cada estado, que es lo que
+        // corresponde: PROCESSING y AWAITING_CONFIRMATION no se miden con la misma vara.
+        // Con el parámetro, un operador pisa los tres a mano para una investigación puntual.
+        List<Payment> payments = olderThanMinutes == null
+                ? paymentService.findPaymentsNeedingReview(merchantId)
+                : paymentService.findPaymentsNeedingReview(merchantId, Duration.ofMinutes(olderThanMinutes));
         List<PaymentResponse> response = payments.stream().map(PaymentResponse::from).toList();
         return ResponseEntity.ok(response);
     }
