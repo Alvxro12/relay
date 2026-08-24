@@ -2,6 +2,18 @@ spring:
   application:
     name: Relay
 
+  # Lee el .env del directorio del proyecto como si fuera un .properties, asi que
+  # DB_PASSWORD, WEBHOOK_SECRET y JWT_SECRET salen de ahi y no hay que exportarlas en
+  # cada shell ni ponerlas en cada run config de IntelliJ. El .env sigue gitignored.
+  #
+  # optional: si el archivo no esta, no pasa nada (produccion no lo tiene).
+  #
+  # Las variables de entorno reales tienen MAYOR precedencia que un config data import,
+  # asi que esto no pisa nada en produccion: es un default para desarrollo, y exportar
+  # la variable a mano lo sigue ganando.
+  config:
+    import: "optional:file:./.env[.properties]"
+
   rabbitmq:
     host: localhost
     port: 5673
