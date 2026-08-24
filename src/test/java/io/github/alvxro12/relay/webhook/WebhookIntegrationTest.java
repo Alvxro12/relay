@@ -7,7 +7,8 @@ import io.github.alvxro12.relay.payment.PaymentResult;
 import io.github.alvxro12.relay.payment.PaymentStatus;
 import io.github.alvxro12.relay.payment.dto.CreatePaymentRequest;
 import io.github.alvxro12.relay.payment.service.PaymentService;
-import io.github.alvxro12.relay.provider.ChargeStatus;
+import io.github.alvxro12.relay.provider.FakePaymentProvider;
+import io.github.alvxro12.relay.provider.SandboxScenario;
 import io.github.alvxro12.relay.provider.FakePaymentProvider;
 import io.github.alvxro12.relay.webhook.service.WebhookSignatureVerifier;
 import org.junit.jupiter.api.BeforeEach;
@@ -82,9 +83,8 @@ class WebhookIntegrationTest {
                 .apply(springSecurity())
                 .build();
 
-        // Bean singleton compartido: sin reset, lo que fuerza un test se filtra al siguiente.
-        fakePaymentProvider.forceNextResult(ChargeStatus.SUCCESS);
-        fakePaymentProvider.forceNextTransactionId(null);
+        // El resultado del cobro lo elige la referencia de cada pago, no el bean. Lo unico
+        // compartido que queda es el hook.
         fakePaymentProvider.onNextCharge(null);
 
         rabbitAdmin.purgeQueue(RabbitConfig.WEBHOOK_DLQ, false);
@@ -119,8 +119,8 @@ class WebhookIntegrationTest {
 
     @Test
     void validSignature_persistsEventAndConsumerUpdatesPayment() throws Exception {
-        String providerTransactionId = "fake_txn_" + UUID.randomUUID();
-        UUID paymentId = chargeAcceptedPayment(providerTransactionId, "wh-valid");
+        UUID paymentId = chargeAcceptedPayment("wh-valid");
+        String providerTransactionId = FakePaymentProvider.transactionIdFor(paymentId);
 
         String eventId = eventId("valid");
         String body = payload(eventId, "payment.succeeded", providerTransactionId);
@@ -150,8 +150,8 @@ class WebhookIntegrationTest {
 
     @Test
     void duplicateWebhook_isProcessedExactlyOnce() throws Exception {
-        String providerTransactionId = "fake_txn_" + UUID.randomUUID();
-        UUID paymentId = chargeAcceptedPayment(providerTransactionId, "wh-dup");
+        UUID paymentId = chargeAcceptedPayment("wh-dup");
+        String providerTransactionId = FakePaymentProvider.transactionIdFor(paymentId);
         long versionBefore = paymentRepository.findById(paymentId).orElseThrow().getVersion();
 
         String eventId = eventId("dup");
@@ -223,12 +223,9 @@ class WebhookIntegrationTest {
 
     @Test
     void webhookArrivingMidCharge_doesNotClobberTheChargeResult() throws Exception {
-        String providerTransactionId = "fake_txn_race_" + UUID.randomUUID();
         CountDownLatch chargeInFlight = new CountDownLatch(1);
         CountDownLatch releaseCharge = new CountDownLatch(1);
 
-        fakePaymentProvider.forceNextResult(ChargeStatus.SUCCESS);
-        fakePaymentProvider.forceNextTransactionId(providerTransactionId);
         fakePaymentProvider.onNextCharge(() -> {
             chargeInFlight.countDown();
             try {
@@ -243,6 +240,7 @@ class WebhookIntegrationTest {
         PaymentResult result = paymentService.createPayment(
                 merchantId, idempotencyKey, new CreatePaymentRequest(1000L, "USD", "wh-race"));
         UUID paymentId = result.payment().getId();
+        String providerTransactionId = FakePaymentProvider.transactionIdFor(paymentId);
 
         // El consumer de charge ya dejó el pago en PROCESSING y está dentro del provider.
         assertThat(chargeInFlight.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS))
@@ -294,13 +292,14 @@ class WebhookIntegrationTest {
      * exactamente el pago que un webhook viene a cerrar, y sale del sistema en vez de
      * sembrarse a mano.
      */
-    private UUID chargeAcceptedPayment(String providerTransactionId, String reference) {
-        fakePaymentProvider.forceNextResult(ChargeStatus.ACCEPTED);
-        fakePaymentProvider.forceNextTransactionId(providerTransactionId);
-
+    private UUID chargeAcceptedPayment(String reference) {
+        // El escenario viaja en la referencia del pago, igual que lo pediria un merchant.
+        // El id de transaccion no hace falta forzarlo: se calcula del paymentId.
         PaymentResult result = paymentService.createPayment(
                 UUID.randomUUID(), UUID.randomUUID().toString(),
-                new CreatePaymentRequest(1000L, "USD", reference));
+                new CreatePaymentRequest(1000L, "USD",
+                        SandboxScenario.PREFIX + SandboxScenario.AWAITING_CONFIRMATION.name()
+                                + ":" + reference));
         UUID paymentId = result.payment().getId();
 
         await().atMost(TIMEOUT).pollInterval(POLL).untilAsserted(() ->

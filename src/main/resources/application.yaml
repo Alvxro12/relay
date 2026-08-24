@@ -53,6 +53,18 @@ server:
   port: 8080
 
 relay:
+  # Modo sandbox: el proveedor simulado hace caso a las referencias RELAY_TEST_* y
+  # fuerza el resultado del cobro (ver SandboxScenario).
+  #
+  # Apagado por defecto. Encendido, un merchant elige el desenlace de su propio pago
+  # escribiendo una etiqueta, asi que el default seguro es false y encenderlo tiene que
+  # ser un acto deliberado del entorno, no una omision.
+  #
+  # Se enciende con RELAY_SANDBOX_ENABLED=true en el entorno (o en .env), y en la
+  # corrida de tests lo enciende surefire (ver pom.xml).
+  sandbox:
+    enabled: false
+
   reconciliation:
     # Cuánto puede quedarse un pago en cada estado antes de contar como colgado. Un
     # umbral por estado porque los tres tardan cosas distintas por diseño: PROCESSING

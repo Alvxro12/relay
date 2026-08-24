@@ -130,6 +130,23 @@
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
 			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<systemPropertyVariables>
+						<!--
+							Los tests necesitan el modo sandbox encendido: es lo que hace que
+							las referencias RELAY_TEST_* fuercen escenarios. Va aca y no en un
+							@SpringBootTest(properties = ...) porque cada set de properties
+							distinto entra en la clave del cache de contextos: anotar algunas
+							clases y otras no partiria el contexto en dos, y los @RabbitListener
+							de los dos competirian por las mismas colas.
+						-->
+						<relay.sandbox.enabled>true</relay.sandbox.enabled>
+					</systemPropertyVariables>
+				</configuration>
+			</plugin>
 		</plugins>
 	</build>
 

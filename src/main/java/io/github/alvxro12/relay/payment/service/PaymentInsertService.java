@@ -45,7 +45,9 @@ public class PaymentInsertService {
             @Override
             public void afterCommit() {
                 eventPublisher.publishChargeRequested(
-                        new ChargeRequestedEvent(saved.getId(), saved.getMerchantId(), saved.getAmount(), saved.getCurrency())
+                        new ChargeRequestedEvent(
+                                saved.getId(), saved.getMerchantId(), saved.getAmount(),
+                                saved.getCurrency(), saved.getExternalReference())
                 );
             }
         });
