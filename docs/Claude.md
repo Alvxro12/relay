@@ -36,13 +36,18 @@ La auto-invocación (`this.metodo()`) saltea el proxy de Spring y la anotación 
 **Tests**: integración con Awaitility para flujos async, nunca `Thread.sleep`.
 Beans singleton mutables (ej. `FakePaymentProvider`) se resetean en `@BeforeEach`.
 
-**Secretos**: nunca hardcodeados. Variables de entorno vía `${VAR}` en `application.yaml`,
-declaradas en `.env` (gitignored) y documentadas en `.env.example`.
+**Secretos**: nunca hardcodeados. Referenciados con `${VAR}` en `application.yaml`,
+con el valor en `.env` (gitignored, importado por `spring.config.import`) y el nombre
+documentado en `.env.example`. Un secreto nuevo se agrega en los dos archivos.
 
 ## Gotchas del entorno
 - SQL Server en puerto host `14330`, RabbitMQ en `5673`/`15673` (conflicto con servicios nativos de Windows).
 - Antes de correr tests de integración: no debe haber otra instancia de `RelayApplication` corriendo (compite por los mensajes de la cola).
-- `DB_PASSWORD` debe estar seteada en tres lugares independientes: `.env` (Docker), Run Config de Maven en IntelliJ, y plantilla de JUnit en IntelliJ.
+- Las credenciales (`DB_PASSWORD`, `WEBHOOK_SECRET`, `JWT_SECRET`) van solo en `.env`.
+  `application.yaml` lo importa con `spring.config.import: "optional:file:./.env[.properties]"`,
+  asi que `mvn test` y `spring-boot:run` no necesitan variables en el shell ni en las run
+  configs de IntelliJ. Una variable de entorno real le gana al import, y en produccion
+  —donde no hay `.env`— el `optional:` lo saltea y manda el entorno.
 
 ## Antes de implementar
 Si encontrás una decisión que afecte arquitectura, dominio, datos, seguridad,
