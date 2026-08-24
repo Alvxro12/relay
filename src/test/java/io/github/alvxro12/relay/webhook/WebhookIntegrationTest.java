@@ -31,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -74,7 +75,12 @@ class WebhookIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext).build();
+        // .apply(springSecurity()) para que el webhook se pruebe contra la cadena real:
+        // sin esto MockMvc saltea los filtros de Spring Security y el test no diria nada
+        // sobre si el endpoint quedo publico o cerrado.
+        mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
+                .apply(springSecurity())
+                .build();
 
         // Bean singleton compartido: sin reset, lo que fuerza un test se filtra al siguiente.
         fakePaymentProvider.forceNextResult(ChargeStatus.SUCCESS);

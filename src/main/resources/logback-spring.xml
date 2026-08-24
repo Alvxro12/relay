@@ -1,43 +1,33 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Enmascarado de credenciales en el log, a nivel de patrón.
+  Enmascarado de credenciales en el log.
 
-  El código de Relay no loguea ni el header Authorization ni el clientSecret, pero eso
-  vale mientras nadie escriba un log.debug distraído y mientras ninguna librería de
-  tercero decida volcar headers o el cuerpo de un request. Esto lo resuelve un nivel
-  más abajo: la sustitución corre sobre el mensaje ya formateado, así que da igual
-  quién lo haya escrito.
+  El codigo de Relay no loguea ni el header Authorization ni el clientSecret, y esa es
+  la barrera principal. Esto es la de atras: sustituye sobre el mensaje ya formateado y
+  sobre el stacktrace, asi que da igual quien haya escrito la linea.
 
-  Cubre también %wEx (el stacktrace), que es por donde se escapan estas cosas: una
-  excepción de parseo puede arrastrar un fragmento del JSON de origen, y ese JSON
-  tiene el clientSecret adentro.
-
-  Es defensa en profundidad, no la única barrera: no enmascarar en origen y confiar
-  solo en esto sería confiar en un regex.
+  La logica vive en Java (CredentialMasker) y no en un %replace del patron: logback no
+  parsea %replace anidados —falla al arrancar— y un regex escrito adentro de un
+  atributo XML no hay forma de testearlo por separado.
 -->
 <configuration>
 
-    <!-- Trae las conversion rules (%clr, %wEx, ...) y los defaults de Spring Boot. -->
+    <!-- Conversion rules y defaults de Spring Boot (%clr, %esb, %wEx, ...). -->
     <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
 
-    <!--
-      Dos sustituciones encadenadas:
-        1. "Bearer <token>"          -> "Bearer ***"
-        2. clientSecret=... / "clientSecret":"..."  -> ...***
-      Sin comas ni llaves dentro de los regex: %replace usa la coma para separar
-      patrón de reemplazo y las llaves para delimitar sus argumentos.
-    -->
-    <property name="MASKED_MESSAGE"
-              value="%replace(%replace(%m%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}){'(?i)(Bearer\s+)[A-Za-z0-9\-._~+/=]+','$1***'}){'(?i)(&quot;?client_?secret&quot;?\s*[:=]\s*&quot;?)[^&quot;}\s]+','$1***'}"/>
+    <conversionRule conversionWord="maskedMsg"
+                    class="io.github.alvxro12.relay.shared.logging.MaskedMessageConverter"/>
+    <conversionRule conversionWord="maskedEx"
+                    class="io.github.alvxro12.relay.shared.logging.MaskedThrowableConverter"/>
 
     <!--
-      El patrón por defecto de Spring Boot con %m%n${LOG_EXCEPTION_CONVERSION_WORD}
-      reemplazado por la versión enmascarada. Se define después del include porque en
-      logback la última definición de una property gana, y antes del console-appender,
-      que es el que la lee al construir el encoder.
+      El patron por defecto de Spring Boot con %m y %wEx cambiados por sus versiones
+      enmascaradas. Se define despues del include porque en logback la ultima
+      definicion de una property gana, y antes del console-appender, que es el que la
+      lee al construir el encoder.
     -->
     <property name="CONSOLE_LOG_PATTERN"
-              value="%clr(%d{${LOG_DATEFORMAT_PATTERN:-yyyy-MM-dd'T'HH:mm:ss.SSSXXX}}){faint} %clr(${LOG_LEVEL_PATTERN:-%5p}){} %clr(${PID:-}){magenta} %clr(--- %esb(){APPLICATION_NAME}%esb{APPLICATION_GROUP}[%15.15t] ${LOG_CORRELATION_PATTERN:-}){faint}%clr(%-40.40logger{39}){cyan} %clr(:){faint} ${MASKED_MESSAGE}"/>
+              value="%clr(%d{${LOG_DATEFORMAT_PATTERN:-yyyy-MM-dd'T'HH:mm:ss.SSSXXX}}){faint} %clr(${LOG_LEVEL_PATTERN:-%5p}){} %clr(${PID:-}){magenta} %clr(--- %esb(){APPLICATION_NAME}%esb{APPLICATION_GROUP}[%15.15t] ${LOG_CORRELATION_PATTERN:-}){faint}%clr(%-40.40logger{39}){cyan} %clr(:){faint} %maskedMsg%n%maskedEx"/>
 
     <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
 

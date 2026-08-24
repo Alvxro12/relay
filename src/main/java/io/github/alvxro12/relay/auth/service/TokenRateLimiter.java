@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -47,6 +48,21 @@ public class TokenRateLimiter {
 
     private final ConcurrentHashMap<String, Window> windows = new ConcurrentHashMap<>();
 
+    private final Clock clock;
+
+    public TokenRateLimiter() {
+        this(Clock.systemUTC());
+    }
+
+    /**
+     * Constructor de los tests. Sin un reloj inyectable, probar que la ventana vence y
+     * que la purga limpia habria que hacerlo esperando un minuto real, y un test que
+     * duerme un minuto es un test que nadie corre.
+     */
+    TokenRateLimiter(Clock clock) {
+        this.clock = clock;
+    }
+
     /**
      * Cuenta un intento contra las dos dimensiones y falla si alguna se pasó.
      *
@@ -63,7 +79,7 @@ public class TokenRateLimiter {
             purgeExpiredWindows();
         }
 
-        long now = System.currentTimeMillis();
+        long now = clock.millis();
 
         Window ipWindow = register(IP_PREFIX + nullSafe(remoteAddress), now);
         if (ipWindow.count() > MAX_ATTEMPTS) {
@@ -104,7 +120,7 @@ public class TokenRateLimiter {
      */
     @Scheduled(fixedDelay = 1, timeUnit = TimeUnit.MINUTES)
     void purgeExpiredWindows() {
-        long cutoff = System.currentTimeMillis() - WINDOW_MILLIS;
+        long cutoff = clock.millis() - WINDOW_MILLIS;
         int before = windows.size();
         windows.entrySet().removeIf(entry -> entry.getValue().startMillis() <= cutoff);
         if (log.isDebugEnabled() && before != windows.size()) {
