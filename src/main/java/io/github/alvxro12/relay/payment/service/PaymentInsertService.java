@@ -33,7 +33,7 @@ public class PaymentInsertService {
         payment.setIdempotencyKey(idempotencyKey);
         payment.setAmount(request.amount());
         payment.setCurrency(request.currency());
-        payment.setReference(request.reference());
+        payment.setExternalReference(request.externalReference());
         payment.setStatus(PaymentStatus.PENDING);
 
         Payment saved = paymentRepository.saveAndFlush(payment);

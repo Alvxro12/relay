@@ -52,7 +52,13 @@ public class Payment {
     @Column(name = "idempotency_key", nullable = false)
     private String idempotencyKey;
 
-    private String reference;     // opcional, referencia del merchant
+    /**
+     * Etiqueta del merchant para este pago. Opcional, sin unique: dos pagos pueden
+     * compartirla. El nombre del campo es el del contrato publico; la columna sigue
+     * llamandose "reference" para no arrastrar una migracion de rename a este gate.
+     */
+    @Column(name = "reference")
+    private String externalReference;
 
     // Id de la transacción en el proveedor: es la clave con la que los webhooks
     // correlacionan contra este pago. Nullable a propósito: un TIMEOUT nunca lo
