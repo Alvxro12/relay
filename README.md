@@ -228,15 +228,20 @@ RabbitMQ Management: `http://localhost:15673`
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| `POST` | `/payments` | Crea un pago y dispara su procesamiento asíncrono. Requiere `Idempotency-Key` y `X-Merchant-Id`. 201 si es nuevo, 200 si es replay del mismo body, 409 si la misma `Idempotency-Key` llega con un body distinto. |
-| `GET` | `/payments/{id}` | Consulta un pago por ID. Requiere `X-Merchant-Id`. Devuelve 404 si pertenece a otro merchant. |
-| `GET` | `/payments/needs-review` | Pagos del merchant que quedaron colgados y necesitan revisión manual: `UNKNOWN`, `PROCESSING` y `AWAITING_CONFIRMATION`, cada uno medido contra su propio umbral (`relay.reconciliation.stale-after` en `application.yaml`). Requiere `X-Merchant-Id` y filtra por él. Parámetro opcional `olderThanMinutes`, que pisa los tres umbrales a la vez para una investigación puntual; sin él manda la configuración. |
+| `POST` | `/v1/oauth/token` | Emite un JWT a partir de `clientId` y `clientSecret` (flujo `client_credentials`). Público. 401 `invalid_client` si las credenciales no sirven, por el motivo que sea. |
+| `POST` | `/payments` | Crea un pago y dispara su procesamiento asíncrono. Requiere `Authorization: Bearer` e `Idempotency-Key`. 201 si es nuevo, 200 si es replay del mismo body, 409 si la misma `Idempotency-Key` llega con un body distinto. |
+| `GET` | `/payments/{id}` | Consulta un pago por ID. Requiere `Authorization: Bearer`. Devuelve 404 si pertenece a otro merchant. |
+| `GET` | `/payments/needs-review` | Pagos del merchant que quedaron colgados y necesitan revisión manual: `UNKNOWN`, `PROCESSING` y `AWAITING_CONFIRMATION`, cada uno medido contra su propio umbral (`relay.reconciliation.stale-after` en `application.yaml`). Requiere `Authorization: Bearer` y filtra por el merchant del token. Parámetro opcional `olderThanMinutes`, que pisa los tres umbrales a la vez para una investigación puntual; sin él manda la configuración. |
 | `POST` | `/webhooks/provider` | Recibe webhooks del proveedor. Requiere el header `X-Signature` con el HMAC-SHA256 del cuerpo crudo. 401 si la firma no valida, 200 tanto para evento nuevo como duplicado, 400 si el cuerpo no es parseable. |
 
-`X-Merchant-Id` es un placeholder temporal hasta implementar autenticación real: hoy
-es un header que el cliente manda y el servidor cree. El scope por merchant de
-`/payments/{id}` y `/payments/needs-review` es una separación de datos, no una barrera
-de seguridad, hasta que exista autenticación de verdad.
+El `merchantId` no es un parámetro de ningún endpoint: sale del claim `sub` del token
+y de ningún otro lado. El header `X-Merchant-Id` ya no existe —era una afirmación del
+cliente, así que el scope por merchant separaba datos pero no era una barrera de
+seguridad—. Los tokens son HS256, duran 15 minutos y no hay refresh: cuando expira, el
+cliente vuelve a pedir uno con sus credenciales.
+
+Los merchants se dan de alta con un runner de línea de comandos, no por API; el
+`clientSecret` se muestra una sola vez y no se puede recuperar.
 
 ## Estado actual
 
@@ -254,6 +259,7 @@ de seguridad, hasta que exista autenticación de verdad.
 - Esquema versionado con Flyway (`ddl-auto: validate`, sin DDL manual)
 - Reconciliación — job programado que **detecta y escala**, no resuelve: busca pagos colgados en `UNKNOWN`, `PROCESSING` y `AWAITING_CONFIRMATION`, cada uno con su propio umbral, loguea un WARN por estado y los deja en `GET /payments/needs-review`. No reintenta el cobro: sin API de consulta al proveedor, recobrar arriesga cobrar dos veces.
 - Webhooks — ingesta con verificación HMAC antes del 200, procesamiento asíncrono, idempotencia de eventos duplicados y guarda de estados terminales
+- Autenticación machine-to-machine (`client_credentials`) y aislamiento entre merchants — el `merchantId` sale del token y no de un header
 
 ### Próximo
 
@@ -266,7 +272,6 @@ lo que falta es la contraparte operativa: una forma de que una persona cierre es
 
 - Integración con un proveedor real en modo test (ej. Stripe test mode) — validación de que la abstracción `PaymentProvider` realmente desacopla el dominio de la infraestructura del proveedor
 - CI/CD con GitHub Actions
-- Autenticación real (reemplazo de `X-Merchant-Id`)
 - Documentación OpenAPI
 - Logs estructurados y observabilidad básica
 

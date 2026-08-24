@@ -31,7 +31,8 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(body);
     }
 
-    // Falta un header requerido: Idempotency-Key o X-Merchant-Id
+    // Falta un header requerido: hoy solo Idempotency-Key. El merchantId ya no es un
+    // header: sale del token, y su ausencia la resuelve la cadena de filtros con un 401.
     @ExceptionHandler(MissingRequestHeaderException.class)
     public ResponseEntity<ErrorResponse> handleMissingHeader(MissingRequestHeaderException ex) {
         ErrorResponse body = ErrorResponse.of(
@@ -41,7 +42,8 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(body);
     }
 
-    // X-Merchant-Id con un valor que no es un UUID válido
+    // Un parámetro que no se puede convertir al tipo esperado: el {id} de
+    // GET /payments/{id} que no es un UUID, olderThanMinutes que no es un número.
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
         ErrorResponse body = ErrorResponse.of(
