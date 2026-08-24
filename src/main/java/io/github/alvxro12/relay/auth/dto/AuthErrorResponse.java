@@ -10,4 +10,10 @@ public record AuthErrorResponse(String error) {
     public static AuthErrorResponse invalidClient() {
         return new AuthErrorResponse("invalid_client");
     }
+
+    /** El unico error de este endpoint que si dice algo: cuantos intentos van no
+     *  depende de si el clientId existe, asi que no filtra nada. */
+    public static AuthErrorResponse tooManyRequests() {
+        return new AuthErrorResponse("too_many_requests");
+    }
 }

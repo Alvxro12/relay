@@ -12,4 +12,16 @@ public record TokenRequest(
         String clientId,
         String clientSecret
 ) {
+
+    /**
+     * El toString que genera un record incluye todos los campos. Sin este override,
+     * cualquier cosa que loguee el objeto —un mensaje de error de binding, un
+     * {@code log.debug("request={}", request)} escrito sin pensar— escribe el
+     * clientSecret en claro en el log. Es una linea que tapa un agujero que aparece
+     * solo, y por eso esta.
+     */
+    @Override
+    public String toString() {
+        return "TokenRequest[clientId=" + clientId + ", clientSecret=***]";
+    }
 }
