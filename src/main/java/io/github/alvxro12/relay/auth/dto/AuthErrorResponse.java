@@ -10,8 +10,4 @@ public record AuthErrorResponse(String error) {
     public static AuthErrorResponse invalidClient() {
         return new AuthErrorResponse("invalid_client");
     }
-
-    public static AuthErrorResponse invalidToken() {
-        return new AuthErrorResponse("invalid_token");
-    }
 }

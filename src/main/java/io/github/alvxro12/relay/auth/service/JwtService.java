@@ -1,11 +1,17 @@
 package io.github.alvxro12.relay.auth.service;
 
+import io.github.alvxro12.relay.auth.InvalidTokenException;
 import io.github.alvxro12.relay.auth.config.JwtProperties;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Header;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.Locator;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
+import java.security.Key;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
@@ -61,6 +67,67 @@ public class JwtService {
                 .compact();
 
         return new IssuedToken(token, ttl.toSeconds());
+    }
+
+    /**
+     * Valida el token y devuelve el merchantId del claim {@code sub}.
+     *
+     * Lo que exige, en este orden: que el header traiga exactamente {@code alg: HS256}
+     * (ver {@link Hs256KeyLocator}), que la firma verifique contra la clave, que
+     * {@code exp} no haya pasado, y que {@code iss} y {@code aud} sean los nuestros.
+     * Cualquiera de esas que falle sale por el mismo InvalidTokenException.
+     *
+     * <p>Los dos últimos no son ceremonia: sin {@code aud}, un token emitido por este
+     * mismo servicio para otro consumidor sería aceptado acá, y sin {@code iss} lo
+     * sería cualquier token firmado con una clave que se reuse en otro sistema.
+     */
+    public UUID parseMerchantId(String token) {
+        Claims claims;
+        try {
+            claims = Jwts.parser()
+                    .keyLocator(new Hs256KeyLocator(key))
+                    .requireIssuer(issuer)
+                    .requireAudience(audience)
+                    // Sin tolerancia de reloj: emisor y validador son el mismo proceso,
+                    // así que no hay desfasaje que compensar y cada segundo de gracia es
+                    // un segundo más de vida para un token que ya venció.
+                    .clockSkewSeconds(0)
+                    .build()
+                    .parseSignedClaims(token)
+                    .getPayload();
+        } catch (JwtException | IllegalArgumentException e) {
+            // El mensaje de jjwt no incluye el token, pero sí el motivo, que es lo que
+            // sirve para diagnosticar. Va al log del filtro en DEBUG, nunca a la respuesta.
+            throw new InvalidTokenException(e.getMessage(), e);
+        }
+
+        try {
+            return UUID.fromString(claims.getSubject());
+        } catch (IllegalArgumentException | NullPointerException e) {
+            // Firmado por nosotros pero con un sub que no es un UUID: no debería pasar
+            // nunca, y si pasa es un bug de emisión, no un token de un atacante.
+            throw new InvalidTokenException("sub no es un UUID", e);
+        }
+    }
+
+    /**
+     * Fija el algoritmo en vez de aceptar el que declare el token.
+     *
+     * jjwt ya rechaza {@code alg: none} por su cuenta, pero {@code verifyWith(key)} a
+     * secas acepta cualquier HMAC: un token con {@code alg: HS512} firmado con la misma
+     * clave pasaría. Acá el header se compara contra HS256 <b>antes</b> de devolver la
+     * clave, así que el algoritmo lo decide el servidor y no el que manda el token.
+     */
+    private record Hs256KeyLocator(SecretKey key) implements Locator<Key> {
+
+        @Override
+        public Key locate(Header header) {
+            String algorithm = header.getAlgorithm();
+            if (!Jwts.SIG.HS256.getId().equals(algorithm)) {
+                throw new InvalidTokenException("algoritmo no permitido: " + algorithm);
+            }
+            return key;
+        }
     }
 
     /**
