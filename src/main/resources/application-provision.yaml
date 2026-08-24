@@ -1,18 +1,22 @@
 # Perfil de la herramienta de alta de merchants (MerchantProvisioningRunner).
 #
-# Apaga los listeners de Rabbit: el runner levanta el contexto completo de Spring
-# para reusar el repositorio y el PasswordEncoder, y sin esto se pondría a consumir
-# mensajes de las colas durante los segundos que tarda en salir, robándoselos a la
-# instancia que sí está sirviendo.
+# El runner levanta el contexto completo de Spring para reusar el repositorio y el
+# PasswordEncoder, y sale apenas termina (unos 10 segundos).
 #
-# El job de reconciliación queda activo pero es inofensivo: solo lee y loguea.
-spring:
-  rabbitmq:
-    listener:
-      simple:
-        auto-startup: false
-
+# LIMITACION CONOCIDA: durante esos segundos los @RabbitListener de la aplicacion
+# estan activos y compiten por las colas con la instancia que este sirviendo. No se
+# apagan desde aca porque RabbitConfig construye sus SimpleRabbitListenerContainerFactory
+# con new, sin pasar por el configurer de Spring Boot, asi que la propiedad
+# spring.rabbitmq.listener.simple.auto-startup no le llega (verificado: los
+# containers arrancan igual). Arreglarlo es tocar RabbitConfig, que queda fuera del
+# alcance de este gate.
+#
+# En la practica no rompe nada —el mensaje que tome lo procesa con el mismo codigo—,
+# pero conviene dar de alta merchants con la aplicacion detenida.
 relay:
   provision:
-    # Se pisa desde la línea de comandos: --relay.provision.merchant-name=Acme
+    # Se pisa desde la linea de comandos:
+    #   -Dspring-boot.run.arguments=--relay.provision.merchant-name=Acme
+    # Un nombre con espacios hay que citarlo entero, o Maven lo parte en dos argumentos
+    # y solo llega la primera palabra.
     merchant-name: ""
