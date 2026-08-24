@@ -57,3 +57,17 @@ relay:
     # Secreto compartido con el proveedor para firmar los webhooks (HMAC-SHA256).
     # Nunca hardcodeado: viene del entorno, ver .env.example.
     secret: "${WEBHOOK_SECRET}"
+
+  auth:
+    jwt:
+      # Clave HMAC en Base64, 256 bits. Sin default a proposito: si la variable no
+      # esta, la app no arranca. Un default seria una clave publica en el repo con
+      # la que cualquiera podria firmar tokens validos.
+      secret: "${JWT_SECRET}"
+      issuer: "relay"
+      audience: "relay-api"
+      # 15 minutos. Es el unico mecanismo de revocacion que hay: no se guarda estado
+      # de sesion, asi que un token robado o un merchant deshabilitado dejan de
+      # servir cuando el token expira, no antes.
+      ttl: 15m
+

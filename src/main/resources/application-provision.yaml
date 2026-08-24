@@ -1,0 +1,18 @@
+# Perfil de la herramienta de alta de merchants (MerchantProvisioningRunner).
+#
+# Apaga los listeners de Rabbit: el runner levanta el contexto completo de Spring
+# para reusar el repositorio y el PasswordEncoder, y sin esto se pondría a consumir
+# mensajes de las colas durante los segundos que tarda en salir, robándoselos a la
+# instancia que sí está sirviendo.
+#
+# El job de reconciliación queda activo pero es inofensivo: solo lee y loguea.
+spring:
+  rabbitmq:
+    listener:
+      simple:
+        auto-startup: false
+
+relay:
+  provision:
+    # Se pisa desde la línea de comandos: --relay.provision.merchant-name=Acme
+    merchant-name: ""
