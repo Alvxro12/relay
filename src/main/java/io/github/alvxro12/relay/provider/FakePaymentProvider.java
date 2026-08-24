@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Proveedor simulado. Es el que corre en modo sandbox.
@@ -55,7 +56,7 @@ public class FakePaymentProvider implements PaymentProvider {
      * comportamiento del proveedor sino una pausa en el tiempo, y eso no se puede pedir
      * desde el cuerpo de un request.
      */
-    private volatile Runnable duringNextCharge;
+    private final AtomicReference<Runnable> duringNextCharge = new AtomicReference<>();
 
     private final AtomicInteger chargeCount = new AtomicInteger();
 
@@ -81,7 +82,7 @@ public class FakePaymentProvider implements PaymentProvider {
     }
 
     public void onNextCharge(Runnable hook) {
-        this.duringNextCharge = hook;
+        duringNextCharge.set(hook);
     }
 
     /**
@@ -101,8 +102,9 @@ public class FakePaymentProvider implements PaymentProvider {
     public ChargeResult charge(ChargeRequest request) {
         chargeCount.incrementAndGet();
 
-        Runnable hook = this.duringNextCharge;
-        this.duringNextCharge = null;
+        // getAndSet y no leer-y-despues-borrar: con dos operaciones separadas, dos cobros
+        // concurrentes pueden leer el mismo hook no nulo y ejecutarlo los dos.
+        Runnable hook = duringNextCharge.getAndSet(null);
         if (hook != null) {
             hook.run();
         }
@@ -144,6 +146,16 @@ public class FakePaymentProvider implements PaymentProvider {
                 record(paymentId, ProviderPaymentStatus.SUCCEEDED, transactionId);
                 throw new PaymentProviderTimeoutException(
                         "Payment provider timed out after the charge was applied");
+            }
+
+            case CRASH_AFTER_CHARGE -> {
+                // Mismo orden que LOST_RESPONSE —primero el cobro, despues la falla— pero
+                // la excepcion es de otro tipo, y eso cambia donde termina el pago:
+                // PaymentChargeService solo atrapa el timeout, asi que esta sube sin
+                // manejar y el pago se queda en PROCESSING.
+                record(paymentId, ProviderPaymentStatus.SUCCEEDED, transactionId);
+                throw new SimulatedProviderCrashException(
+                        "Payment provider client crashed after the charge was applied");
             }
 
             case UNKNOWN -> {

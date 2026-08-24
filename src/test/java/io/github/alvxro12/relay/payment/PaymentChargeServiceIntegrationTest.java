@@ -3,6 +3,8 @@ package io.github.alvxro12.relay.payment;
 import io.github.alvxro12.relay.payment.dto.CreatePaymentRequest;
 import io.github.alvxro12.relay.payment.service.PaymentService;
 import io.github.alvxro12.relay.provider.FakePaymentProvider;
+import io.github.alvxro12.relay.provider.ProviderPaymentStatus;
+import io.github.alvxro12.relay.provider.ProviderStatusResult;
 import io.github.alvxro12.relay.provider.SandboxScenario;
 import io.github.alvxro12.relay.provider.FakePaymentProvider;
 import org.junit.jupiter.api.BeforeEach;
@@ -126,6 +128,59 @@ class PaymentChargeServiceIntegrationTest {
                     .as("exactamente dos escrituras: el claim a PROCESSING y el resultado")
                     .isEqualTo(2L);
         });
+    }
+
+    /**
+     * Un cobro que se aplico y despues se rompio por algo que no es un timeout deja el pago
+     * colgado en PROCESSING <b>con plata movida</b>.
+     *
+     * <p>Es el unico camino que produce ese estado, y por eso existe el escenario: sin el
+     * no hay con que probar despues que un PROCESSING stale se resuelve preguntandole al
+     * proveedor. Los otros escenarios de falla terminan todos en UNKNOWN.
+     *
+     * <p>El mecanismo es la ausencia de un catch: PaymentChargeService atrapa solamente
+     * PaymentProviderTimeoutException, asi que esta excepcion sube sin manejar, recordResult
+     * nunca corre y el claim queda commiteado en PROCESSING para siempre.
+     *
+     * <p>El listener va a loguear la excepcion y reintentar. Es lo esperado, no un test
+     * roto: en el reintento el claim encuentra el pago ya en PROCESSING, se va sin cobrar y
+     * el mensaje se ackea. De ahi que el cobro sea exactamente uno.
+     */
+    @Test
+    void crashAfterCharge_leavesThePaymentStuckInProcessingWithTheChargeApplied() {
+        UUID merchantId = UUID.randomUUID();
+        String idempotencyKey = UUID.randomUUID().toString();
+        PaymentResult result = paymentService.createPayment(merchantId, idempotencyKey,
+                new CreatePaymentRequest(1000L, "USD",
+                        SandboxScenario.PREFIX + SandboxScenario.CRASH_AFTER_CHARGE.name()));
+        UUID paymentId = result.payment().getId();
+
+        await().atMost(TIMEOUT).pollInterval(POLL).untilAsserted(() ->
+                assertThat(readStatusFromDb(paymentId)).isEqualTo(PaymentStatus.PROCESSING.name()));
+
+        // Y se queda ahi. Sostenida en el tiempo porque el fallo seria una escritura tardia:
+        // un chequeo instantaneo podria adelantarse al reintento del listener y pasar por
+        // accidente.
+        await().during(Duration.ofSeconds(3)).atMost(TIMEOUT).untilAsserted(() -> {
+            assertThat(readStatusFromDb(paymentId))
+                    .as("nadie resuelve un PROCESSING colgado por su cuenta")
+                    .isEqualTo(PaymentStatus.PROCESSING.name());
+
+            assertThat(fakePaymentProvider.chargeCount())
+                    .as("el reintento del listener no vuelve a cobrar: el claim lo frena")
+                    .isEqualTo(1);
+        });
+
+        // La parte que hace util al escenario: el pago se ve como si no hubiera pasado nada,
+        // y del otro lado hay un cobro exitoso esperando a que alguien pregunte.
+        assertThat(fakePaymentProvider.getPaymentStatus(paymentId))
+                .as("el proveedor cobro, aunque el pago no lo refleje")
+                .isEqualTo(new ProviderStatusResult(
+                        ProviderPaymentStatus.SUCCEEDED, FakePaymentProvider.transactionIdFor(paymentId)));
+
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getProviderTransactionId())
+                .as("y el pago no tiene ni la clave con la que correlacionarlo")
+                .isNull();
     }
 
     /**

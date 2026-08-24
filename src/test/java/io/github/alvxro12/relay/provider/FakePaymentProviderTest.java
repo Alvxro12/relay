@@ -106,6 +106,27 @@ class FakePaymentProviderTest {
                 .isEqualTo(new ProviderStatusResult(ProviderPaymentStatus.UNKNOWN, null));
     }
 
+    /**
+     * Como LOST_RESPONSE en todo salvo el tipo de la excepción, y ese detalle es el que
+     * decide dónde termina el pago. La aserción de que <b>no</b> es un
+     * PaymentProviderTimeoutException no es cosmética: si lo fuera,
+     * PaymentChargeService lo atraparía, el pago iría a UNKNOWN y este escenario dejaría
+     * de servir para lo único que existe, que es producir un PROCESSING colgado.
+     */
+    @Test
+    void crashAfterCharge_throwsSomethingOtherThanATimeoutAndTheChargeWasApplied() {
+        UUID paymentId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> charge(paymentId, SandboxScenario.CRASH_AFTER_CHARGE))
+                .isInstanceOf(SimulatedProviderCrashException.class)
+                .isNotInstanceOf(PaymentProviderTimeoutException.class);
+
+        assertThat(provider.getPaymentStatus(paymentId))
+                .as("el cobro se aplicó antes de que el cliente se rompiera")
+                .isEqualTo(new ProviderStatusResult(
+                        ProviderPaymentStatus.SUCCEEDED, FakePaymentProvider.transactionIdFor(paymentId)));
+    }
+
     // --- la asimetría, que es el punto de todo esto ------------------------------
 
     /**
@@ -224,6 +245,29 @@ class FakePaymentProviderTest {
     }
 
     // --- el resto ---------------------------------------------------------------
+
+    /**
+     * El hook es de un solo uso y se limpia aunque lance. Si sobreviviera al primer cobro,
+     * un test que frena el cobro en vuelo dejaria frenados los de todos los tests
+     * siguientes de la misma corrida.
+     */
+    @Test
+    void theOnNextChargeHookFiresOnceAndClearsItselfEvenIfItThrows() {
+        java.util.concurrent.atomic.AtomicInteger fired = new java.util.concurrent.atomic.AtomicInteger();
+
+        provider.onNextCharge(() -> {
+            fired.incrementAndGet();
+            throw new IllegalStateException("hook roto");
+        });
+
+        assertThatThrownBy(() -> charge(UUID.randomUUID(), SandboxScenario.SUCCESS))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThatCode(() -> charge(UUID.randomUUID(), SandboxScenario.SUCCESS))
+                .as("el hook no sobrevive al cobro que lo disparo")
+                .doesNotThrowAnyException();
+        assertThat(fired.get()).isEqualTo(1);
+    }
 
     @Test
     void theTransactionIdIsStableForAPayment() {

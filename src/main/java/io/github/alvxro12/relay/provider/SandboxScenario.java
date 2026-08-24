@@ -49,6 +49,17 @@ public enum SandboxScenario {
      */
     LOST_RESPONSE,
 
+    /**
+     * El cobro ocurrio y el cliente del proveedor se rompio despues, por algo que no es un
+     * timeout. Distinto de LOST_RESPONSE en un solo detalle que lo cambia todo: como
+     * PaymentChargeService solo atrapa el timeout, esta excepcion sube sin manejar,
+     * recordResult nunca corre y el pago queda en <b>PROCESSING</b> en vez de UNKNOWN.
+     *
+     * <p>Es el unico escenario que produce un PROCESSING colgado con plata movida, o sea
+     * el unico con el que se puede probar que un PROCESSING stale se resuelve preguntando.
+     */
+    CRASH_AFTER_CHARGE,
+
     /** El proveedor registro algo pero el mismo no sabe como termino. */
     UNKNOWN;
 
