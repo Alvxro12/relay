@@ -74,6 +74,25 @@ class JwtAuthenticationIntegrationTest extends AuthTestSupport {
                 .andExpect(content().json("{\"error\":\"invalid_token\"}", true));
     }
 
+    /**
+     * Confusion de algoritmo: HS512 firmado con nuestra misma clave.
+     *
+     * <p>Este es el test que justifica el Locator explicito de JwtService. El de
+     * {@code alg: none} de arriba no lo justifica: jjwt rechaza los JWT no firmados por
+     * su cuenta, asi que ese test da verde igual aunque el parser no exija nada. Este
+     * token lo acepta cualquier parser que se conforme con "algun HMAC" y solo lo
+     * rechaza uno que compare el header contra HS256 antes de entregar la clave.
+     */
+    @Test
+    void withTokenSignedWithHs512AndTheSameKey_isUnauthorized() throws Exception {
+        Merchant merchant = activeMerchant("s3cr3t-" + UUID.randomUUID());
+
+        mockMvc.perform(get(PROTECTED_ENDPOINT)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tokenSignedWithHs512(merchant))))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().json("{\"error\":\"invalid_token\"}", true));
+    }
+
     /** Firmado por nosotros y vigente, pero emitido para otro destinatario. */
     @Test
     void withTokenForAnotherAudience_isUnauthorized() throws Exception {

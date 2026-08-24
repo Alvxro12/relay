@@ -14,7 +14,11 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
+import javax.crypto.Mac;
 import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Date;
@@ -40,6 +44,8 @@ public abstract class AuthTestSupport {
      * daría 429 y los tests se volverían dependientes del orden en que corren.
      */
     private static final AtomicInteger IP_COUNTER = new AtomicInteger();
+
+    private static final Base64.Encoder BASE64_URL = Base64.getUrlEncoder().withoutPadding();
 
     @Autowired
     protected WebApplicationContext webApplicationContext;
@@ -101,14 +107,14 @@ public abstract class AuthTestSupport {
     protected String expiredTokenFor(Merchant merchant) {
         Instant past = Instant.now().minusSeconds(3600);
         return baseBuilder(merchant.getId(), past, past.plusSeconds(900))
-                .signWith(signingKey(jwtSecret), Jwts.SIG.HS256)
+                .signWith(signingKey(), Jwts.SIG.HS256)
                 .compact();
     }
 
     /** Todo correcto salvo la clave: la firma no verifica contra la nuestra. */
     protected String tokenSignedWithAnotherKey(Merchant merchant) {
         byte[] otherKey = new byte[32];
-        new java.security.SecureRandom().nextBytes(otherKey);
+        new SecureRandom().nextBytes(otherKey);
         Instant now = Instant.now();
         return baseBuilder(merchant.getId(), now, now.plusSeconds(900))
                 .signWith(Keys.hmacShaKeyFor(otherKey), Jwts.SIG.HS256)
@@ -124,6 +130,41 @@ public abstract class AuthTestSupport {
         return baseBuilder(merchant.getId(), now, now.plusSeconds(900)).compact();
     }
 
+    /**
+     * Confusión de algoritmo de verdad: HS512 firmado con <b>nuestra misma clave</b>,
+     * todo lo demás correcto.
+     *
+     * <p>Existe porque {@code alg: none} no alcanza para probar el requisito: jjwt
+     * rechaza los JWT no firmados por su cuenta, así que ese test daría verde aunque el
+     * parser no exigiera nada. Este token, en cambio, lo acepta cualquier parser que se
+     * conforme con "algún HMAC" —{@code verifyWith(key)} a secas lo hace— y solo lo
+     * rechaza uno que compare el header contra HS256.
+     *
+     * <p>Se arma a mano y no con jjwt porque jjwt se niega a firmar HS512 con una clave
+     * de 256 bits, que es justamente la situación que se quiere reproducir.
+     */
+    protected String tokenSignedWithHs512(Merchant merchant) throws Exception {
+        Instant now = Instant.now();
+
+        String header = base64Url("{\"alg\":\"HS512\",\"typ\":\"JWT\"}");
+        String payload = base64Url("{"
+                + "\"sub\":\"" + merchant.getId() + "\","
+                + "\"iss\":\"" + issuer + "\","
+                + "\"aud\":\"" + audience + "\","
+                + "\"iat\":" + now.getEpochSecond() + ","
+                + "\"exp\":" + now.plusSeconds(900).getEpochSecond() + ","
+                + "\"jti\":\"" + UUID.randomUUID() + "\""
+                + "}");
+
+        String signingInput = header + "." + payload;
+
+        Mac mac = Mac.getInstance("HmacSHA512");
+        mac.init(new SecretKeySpec(decodedSecret(), "HmacSHA512"));
+        String signature = BASE64_URL.encodeToString(mac.doFinal(signingInput.getBytes(StandardCharsets.UTF_8)));
+
+        return signingInput + "." + signature;
+    }
+
     /** Bien firmado y vigente, pero emitido para otro destinatario. */
     protected String tokenForAnotherAudience(Merchant merchant) {
         Instant now = Instant.now();
@@ -134,7 +175,7 @@ public abstract class AuthTestSupport {
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusSeconds(900)))
                 .id(UUID.randomUUID().toString())
-                .signWith(signingKey(jwtSecret), Jwts.SIG.HS256)
+                .signWith(signingKey(), Jwts.SIG.HS256)
                 .compact();
     }
 
@@ -148,8 +189,16 @@ public abstract class AuthTestSupport {
                 .id(UUID.randomUUID().toString());
     }
 
-    private static SecretKey signingKey(String base64Secret) {
-        return Keys.hmacShaKeyFor(Base64.getDecoder().decode(base64Secret.trim()));
+    private SecretKey signingKey() {
+        return Keys.hmacShaKeyFor(decodedSecret());
+    }
+
+    private byte[] decodedSecret() {
+        return Base64.getDecoder().decode(jwtSecret.trim());
+    }
+
+    private static String base64Url(String json) {
+        return BASE64_URL.encodeToString(json.getBytes(StandardCharsets.UTF_8));
     }
 
     // --- request helpers -------------------------------------------------------
