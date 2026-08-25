@@ -1,16 +1,14 @@
 package io.github.alvxro12.relay.payment;
 
-import org.junit.jupiter.api.BeforeEach;
+import io.github.alvxro12.relay.auth.AuthTestSupport;
+import io.github.alvxro12.relay.auth.Merchant;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.web.context.WebApplicationContext;
 
-import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
@@ -21,28 +19,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * MockMvc construido a mano sobre el WebApplicationContext, igual que
- * WebhookIntegrationTest: con {@code webEnvironment = RANDOM_PORT} habría un segundo
- * contexto de Spring y sus @RabbitListener competirían por las mismas colas.
+ * MockMvc y merchants los aporta {@link AuthTestSupport}, que ademas aplica la cadena
+ * de Spring Security: sin eso el filtro no correria y estos tests probarian el scope
+ * por merchant sobre un sistema abierto.
+ *
+ * <p>El merchant ya no es un UUID cualquiera: para pedir el listado hay que tener un
+ * token, y para tener un token hay que ser una fila de merchants.
  */
-@SpringBootTest
-class PaymentNeedsReviewIntegrationTest {
-
-    @Autowired
-    private WebApplicationContext webApplicationContext;
+class PaymentNeedsReviewIntegrationTest extends AuthTestSupport {
 
     @Autowired
     private PaymentRepository paymentRepository;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
-
-    private MockMvc mockMvc;
-
-    @BeforeEach
-    void setUp() {
-        mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext).build();
-    }
 
     /**
      * Los pagos en revisión son datos de un comercio. El endpoint devolvía los de
@@ -51,19 +41,21 @@ class PaymentNeedsReviewIntegrationTest {
      */
     @Test
     void needsReview_doesNotLeakPaymentsOfOtherMerchants() throws Exception {
-        UUID merchantId = UUID.randomUUID();
-        UUID otherMerchantId = UUID.randomUUID();
+        Merchant merchant = activeMerchant("s3cr3t-" + UUID.randomUUID());
+        Merchant otherMerchant = activeMerchant("s3cr3t-" + UUID.randomUUID());
+        UUID merchantId = merchant.getId();
+        UUID otherMerchantId = otherMerchant.getId();
 
         Payment own = staleUnknownPayment(merchantId);
         Payment other = staleUnknownPayment(otherMerchantId);
 
-        mockMvc.perform(get("/payments/needs-review").header("X-Merchant-Id", merchantId))
+        mockMvc.perform(get("/payments/needs-review").header(HttpHeaders.AUTHORIZATION, bearer(validTokenFor(merchant))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$..id", hasItem(own.getId().toString())))
                 .andExpect(jsonPath("$..id", not(hasItem(other.getId().toString()))));
 
         // Y al revés, para que no pase por un filtro que simplemente devuelve poco.
-        mockMvc.perform(get("/payments/needs-review").header("X-Merchant-Id", otherMerchantId))
+        mockMvc.perform(get("/payments/needs-review").header(HttpHeaders.AUTHORIZATION, bearer(validTokenFor(otherMerchant))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$..id", hasItem(other.getId().toString())))
                 .andExpect(jsonPath("$..id", not(hasItem(own.getId().toString()))));
@@ -76,8 +68,10 @@ class PaymentNeedsReviewIntegrationTest {
      */
     @Test
     void needsReview_returnsTheThreeStatesThatCanGetStuck() throws Exception {
-        UUID merchantId = UUID.randomUUID();
-        UUID otherMerchantId = UUID.randomUUID();
+        Merchant merchant = activeMerchant("s3cr3t-" + UUID.randomUUID());
+        Merchant otherMerchant = activeMerchant("s3cr3t-" + UUID.randomUUID());
+        UUID merchantId = merchant.getId();
+        UUID otherMerchantId = otherMerchant.getId();
 
         Payment unknown = stalePayment(merchantId, PaymentStatus.UNKNOWN, null, 30, ChronoUnit.MINUTES);
         Payment processing = stalePayment(merchantId, PaymentStatus.PROCESSING, null, 30, ChronoUnit.MINUTES);
@@ -93,7 +87,7 @@ class PaymentNeedsReviewIntegrationTest {
         Payment otherMerchantProcessing = stalePayment(
                 otherMerchantId, PaymentStatus.PROCESSING, null, 30, ChronoUnit.MINUTES);
 
-        mockMvc.perform(get("/payments/needs-review").header("X-Merchant-Id", merchantId))
+        mockMvc.perform(get("/payments/needs-review").header(HttpHeaders.AUTHORIZATION, bearer(validTokenFor(merchant))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$..id", hasItem(unknown.getId().toString())))
                 .andExpect(jsonPath("$..id", hasItem(processing.getId().toString())))
@@ -103,13 +97,15 @@ class PaymentNeedsReviewIntegrationTest {
     }
 
     /**
-     * Sin el header no hay merchant contra el cual filtrar, así que la request no
-     * puede resolverse: 422 vía GlobalExceptionHandler, nunca un listado sin scope.
+     * Sin token no hay merchant contra el cual filtrar. Antes esto era un 422 del
+     * GlobalExceptionHandler porque faltaba un header; ahora lo corta la cadena de
+     * filtros antes de llegar al controller y es un 401. Lo que no cambia es lo que
+     * importa: nunca un listado sin scope.
      */
     @Test
-    void needsReview_withoutMerchantHeader_isRejected() throws Exception {
+    void needsReview_withoutToken_isRejected() throws Exception {
         mockMvc.perform(get("/payments/needs-review"))
-                .andExpect(status().isUnprocessableEntity());
+                .andExpect(status().isUnauthorized());
     }
 
     /** Un pago en UNKNOWN lo bastante viejo como para entrar en la ventana por defecto. */
@@ -129,9 +125,17 @@ class PaymentNeedsReviewIntegrationTest {
         Payment saved = paymentRepository.saveAndFlush(payment);
 
         // updated_at lo maneja la auditoría de JPA, así que se fuerza por SQL directo.
+        //
+        // OffsetDateTime en UTC y no Timestamp: la columna es datetimeoffset, y un
+        // java.sql.Timestamp lo manda el driver como la hora local de la JVM etiquetada
+        // +00:00, así que el instante guardado queda corrido el offset de la máquina hacia
+        // atrás. Acá daba igual —este test solo pide "suficientemente viejo" y el corrimiento
+        // va justo en esa dirección— pero es la misma trampa que ya hizo fallar un test de la
+        // ventana de gracia, y sembrar mal la próxima aserción de ventana es cuestión de que
+        // alguien agregue una.
         jdbcTemplate.update(
                 "UPDATE payments SET updated_at = ? WHERE id = ?",
-                Timestamp.from(Instant.now().minus(age, unit)), saved.getId());
+                Instant.now().minus(age, unit).atOffset(ZoneOffset.UTC), saved.getId());
 
         return saved;
     }

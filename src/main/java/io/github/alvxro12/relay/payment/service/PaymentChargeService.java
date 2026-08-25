@@ -51,9 +51,9 @@ public class PaymentChargeService {
         // a llamar al proveedor sin saber si el cobro anterior movió plata.
         // Preferimos un pago trabado y visible a un cobro duplicado.
         try {
-            ChargeResult result = paymentProvider.charge(
-                    new ChargeRequest(event.amount(), event.currency())
-            );
+            ChargeResult result = paymentProvider.charge(new ChargeRequest(
+                    event.paymentId(), event.amount(), event.currency(), event.externalReference()
+            ));
             finalStatus = mapToPaymentStatus(result.status());
             providerTransactionId = result.providerTransactionId();
 

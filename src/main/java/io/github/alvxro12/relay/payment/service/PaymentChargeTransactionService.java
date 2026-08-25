@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -56,6 +57,9 @@ public class PaymentChargeTransactionService {
         }
 
         payment.setStatus(PaymentStatus.PROCESSING);
+        // Marca desde la que se mide la ventana de gracia de NOT_FOUND. Se escribe una
+        // sola vez; ver Payment.markChargeAttempted.
+        payment.markChargeAttempted(Instant.now());
         paymentRepository.saveAndFlush(payment);
         return true;
     }

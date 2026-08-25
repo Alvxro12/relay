@@ -2,6 +2,18 @@ spring:
   application:
     name: Relay
 
+  # Lee el .env del directorio del proyecto como si fuera un .properties, asi que
+  # DB_PASSWORD, WEBHOOK_SECRET y JWT_SECRET salen de ahi y no hay que exportarlas en
+  # cada shell ni ponerlas en cada run config de IntelliJ. El .env sigue gitignored.
+  #
+  # optional: si el archivo no esta, no pasa nada (produccion no lo tiene).
+  #
+  # Las variables de entorno reales tienen MAYOR precedencia que un config data import,
+  # asi que esto no pisa nada en produccion: es un default para desarrollo, y exportar
+  # la variable a mano lo sigue ganando.
+  config:
+    import: "optional:file:./.env[.properties]"
+
   rabbitmq:
     host: localhost
     port: 5673
@@ -41,7 +53,61 @@ server:
   port: 8080
 
 relay:
+  # Modo sandbox: el proveedor simulado hace caso a las referencias RELAY_TEST_* y
+  # fuerza el resultado del cobro (ver SandboxScenario).
+  #
+  # Apagado por defecto. Encendido, un merchant elige el desenlace de su propio pago
+  # escribiendo una etiqueta, asi que el default seguro es false y encenderlo tiene que
+  # ser un acto deliberado del entorno, no una omision.
+  #
+  # Se enciende con RELAY_SANDBOX_ENABLED=true en el entorno (o en .env), y en la
+  # corrida de tests lo enciende surefire (ver pom.xml).
+  sandbox:
+    enabled: false
+
+  provider:
+    # Cuanto tiene que haber pasado desde el intento de cobro para que un NOT_FOUND del
+    # proveedor se pueda tomar como definitivo y autorice a dar el pago por fallido.
+    #
+    # Un proveedor real puede contestar NOT_FOUND por un cobro que todavia esta creando
+    # de su lado: sus lecturas no son inmediatamente consistentes con sus escrituras.
+    # Actuar sobre ese NOT_FOUND marca FAILED un pago que si cobro, y eso le hace perder
+    # plata al merchant. El error es brutalmente asimetrico —corto de mas pierde plata,
+    # largo de mas hace esperar— asi que el sesgo va largo.
+    #
+    # 30m y no 15m: la ventana se mide desde el intento de cobro, igual que
+    # reconciliation.stale-after.unknown. Con las dos en 15m la gracia vencia justo
+    # cuando la reconciliacion miraba el pago por primera vez, o sea que no habria
+    # frenado nada nunca.
+    not-found-grace: 30m
+
   reconciliation:
+    scheduler:
+      # Si el disparo periódico de la reconciliación corre. Encendido por defecto: un
+      # entorno que se olvide de esta propiedad tiene que quedar reconciliando, no en
+      # silencio. Se apaga en la corrida de tests (ver pom.xml), donde un job escribiendo
+      # de fondo mutaría las filas que un test de integración está mirando; ahí los tests
+      # llaman a StalePaymentResolver directo.
+      enabled: true
+
+    # Cuánto tiempo desde el intento de cobro se le sigue preguntando al proveedor por un
+    # pago colgado. Pasado esto se deja de consultar y queda para una persona, visible en
+    # GET /v1/payments/needs-review y en el WARN de cada ciclo. Es lo que separa "esperando"
+    # de "en limbo": un pago cuya consulta contesta UNKNOWN una y otra vez no se resuelve
+    # nunca solo, y sin este corte se consultaría para siempre.
+    #
+    # Rendirse no escribe nada en la fila: se mide contra charge_attempted_at, que es
+    # inmutable. Un contador de intentos movería updated_at y sacaría al pago de su propia
+    # ventana de staleness justo por haberlo mirado.
+    #
+    # 24h y no menos: tiene que ser mayor que provider.not-found-grace (30m), o el pago se
+    # rendiría antes de que un NOT_FOUND pueda autorizar el FAILED y ese camino no correría
+    # nunca; y mayor que stale-after.awaiting-confirmation (6h), o estaríamos escalando a
+    # revisión un pago que el otro umbral todavía considera normal. Además está en la unidad
+    # correcta: rendirse es entregarle el pago a una persona, y una persona lo mira al día
+    # siguiente.
+    give-up-after: 24h
+
     # Cuánto puede quedarse un pago en cada estado antes de contar como colgado. Un
     # umbral por estado porque los tres tardan cosas distintas por diseño: PROCESSING
     # dura lo que dura la llamada al proveedor (segundos), mientras que
@@ -57,3 +123,17 @@ relay:
     # Secreto compartido con el proveedor para firmar los webhooks (HMAC-SHA256).
     # Nunca hardcodeado: viene del entorno, ver .env.example.
     secret: "${WEBHOOK_SECRET}"
+
+  auth:
+    jwt:
+      # Clave HMAC en Base64, 256 bits. Sin default a proposito: si la variable no
+      # esta, la app no arranca. Un default seria una clave publica en el repo con
+      # la que cualquiera podria firmar tokens validos.
+      secret: "${JWT_SECRET}"
+      issuer: "relay"
+      audience: "relay-api"
+      # 15 minutos. Es el unico mecanismo de revocacion que hay: no se guarda estado
+      # de sesion, asi que un token robado o un merchant deshabilitado dejan de
+      # servir cuando el token expira, no antes.
+      ttl: 15m
+

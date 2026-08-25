@@ -28,6 +28,7 @@
 	</scm>
 	<properties>
 		<java.version>21</java.version>
+		<jjwt.version>0.12.6</jjwt.version>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -89,6 +90,38 @@
 			<artifactId>spring-retry</artifactId>
 			<version>2.0.13</version>
 		</dependency>
+
+		<!--
+			Gate 1 (autenticacion m2m). starter-security aporta la SecurityFilterChain
+			y BCryptPasswordEncoder; jjwt es el parser/emisor de JWT.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-api</artifactId>
+			<version>${jjwt.version}</version>
+		</dependency>
+		<!-- impl y jackson son runtime a proposito: el codigo compila solo contra jjwt-api. -->
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-impl</artifactId>
+			<version>${jjwt.version}</version>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-jackson</artifactId>
+			<version>${jjwt.version}</version>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-test</artifactId>
+			<scope>test</scope>
+		</dependency>
 	</dependencies>
 
 	<build>
@@ -96,6 +129,36 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<systemPropertyVariables>
+						<!--
+							Los tests necesitan el modo sandbox encendido: es lo que hace que
+							las referencias RELAY_TEST_* fuercen escenarios. Va aca y no en un
+							@SpringBootTest(properties = ...) porque cada set de properties
+							distinto entra en la clave del cache de contextos: anotar algunas
+							clases y otras no partiria el contexto en dos, y los @RabbitListener
+							de los dos competirian por las mismas colas.
+						-->
+						<relay.sandbox.enabled>true</relay.sandbox.enabled>
+						<!--
+							Y el disparo periodico de la reconciliacion apagado. Desde que la
+							reconciliacion escribe estado, un job de fondo mutaria las filas que
+							un test de integracion esta mirando, y el fallo se veria como un test
+							intermitente que culpa a otra cosa. Alargar el intervalo no alcanza:
+							si la suite tarda mas que el intervalo, el job dispara igual.
+
+							Va aca por el mismo motivo que el sandbox —un set de properties
+							distinto por clase partiria el cache de contextos— y ademas porque
+							apagarlo con @ConditionalOnProperty por clase de test haria justo eso.
+							Los tests llaman a StalePaymentResolver directo.
+						-->
+						<relay.reconciliation.scheduler.enabled>false</relay.reconciliation.scheduler.enabled>
+					</systemPropertyVariables>
+				</configuration>
 			</plugin>
 		</plugins>
 	</build>

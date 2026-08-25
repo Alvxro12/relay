@@ -1,0 +1,32 @@
+# Perfil de la herramienta de alta de merchants (MerchantProvisioningRunner).
+#
+# El runner levanta el contexto completo de Spring para reusar el repositorio y el
+# PasswordEncoder, y sale apenas termina (unos 10 segundos).
+#
+# Los @RabbitListener no arrancan. Antes si: RabbitConfig construia sus
+# SimpleRabbitListenerContainerFactory con new, sin pasar por el configurer de Spring
+# Boot, asi que auto-startup no le llegaba y los containers arrancaban igual —durante
+# esos diez segundos competian por las colas con la instancia que estuviera sirviendo.
+# Desde que RabbitConfig usa el configurer, la propiedad de abajo si tiene efecto.
+spring:
+  rabbitmq:
+    listener:
+      simple:
+        auto-startup: false
+
+relay:
+  # La reconciliacion apagada. El @Scheduled dispara ni bien arranca el contexto, y desde que
+  # la reconciliacion escribe estado eso significa que dar de alta un merchant lanzaria una
+  # pasada entera —consultando al proveedor y resolviendo pagos— como efecto secundario.
+  # Mientras el job solo logueaba no importaba; ahora si. A diferencia de los listeners de
+  # Rabbit de mas arriba, este si se apaga desde el perfil: el bean entero es condicional.
+  reconciliation:
+    scheduler:
+      enabled: false
+
+  provision:
+    # Se pisa desde la linea de comandos:
+    #   -Dspring-boot.run.arguments=--relay.provision.merchant-name=Acme
+    # Un nombre con espacios hay que citarlo entero, o Maven lo parte en dos argumentos
+    # y solo llega la primera palabra.
+    merchant-name: ""

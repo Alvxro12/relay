@@ -15,6 +15,6 @@ public record CreatePaymentRequest(
         @Pattern(regexp = "^[A-Z]{3}$", message = "currency must be a 3-letter ISO 4217 code")
         String currency,
 
-        String reference   // opcional, sin validación
+        String externalReference   // opcional, sin validación: es la etiqueta del merchant
 ) {
 }

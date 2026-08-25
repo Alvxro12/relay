@@ -1,0 +1,11 @@
+# Perfil de produccion.
+#
+# Por ahora tiene una sola cosa, y es a proposito: el modo sandbox explicitamente en
+# false. Ya esta en false por defecto en application.yaml, asi que esto es redundante
+# hoy —y esa es la idea—. Si alguna vez alguien invierte el default para que le resulte
+# comodo desarrollar, produccion no se entera y sigue cerrada.
+#
+# El resto de la configuracion de produccion es del Gate 6.
+relay:
+  sandbox:
+    enabled: false

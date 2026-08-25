@@ -33,7 +33,7 @@ public class PaymentInsertService {
         payment.setIdempotencyKey(idempotencyKey);
         payment.setAmount(request.amount());
         payment.setCurrency(request.currency());
-        payment.setReference(request.reference());
+        payment.setExternalReference(request.externalReference());
         payment.setStatus(PaymentStatus.PENDING);
 
         Payment saved = paymentRepository.saveAndFlush(payment);
@@ -45,7 +45,9 @@ public class PaymentInsertService {
             @Override
             public void afterCommit() {
                 eventPublisher.publishChargeRequested(
-                        new ChargeRequestedEvent(saved.getId(), saved.getMerchantId(), saved.getAmount(), saved.getCurrency())
+                        new ChargeRequestedEvent(
+                                saved.getId(), saved.getMerchantId(), saved.getAmount(),
+                                saved.getCurrency(), saved.getExternalReference())
                 );
             }
         });

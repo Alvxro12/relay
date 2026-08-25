@@ -1,0 +1,16 @@
+-- Cuando se llamo al proveedor para cobrar este pago.
+--
+-- Existe porque la ventana de gracia de NOT_FOUND (relay.provider.not-found-grace) se
+-- mide desde el intento de cobro, y no hay ninguna columna que sirva para eso:
+--   * created_at incluye la espera en la cola, que no tiene nada que ver;
+--   * updated_at se mueve con cada escritura, asi que cualquier cosa que la
+--     reconciliacion escriba en la fila reiniciaria la gracia sola y el pago nunca
+--     cumpliria la ventana. El sintoma seria "la reconciliacion no hace nada", que es
+--     de lo mas dificil de diagnosticar.
+--
+-- Se escribe una sola vez, en el claim, y no se mueve nunca mas.
+--
+-- NULL a proposito: los pagos que ya existen nunca la tuvieron, y un pago que jamas
+-- llego a claim tampoco. Un NULL significa "no se intento cobrar", y eso es distinto de
+-- "se intento hace mucho".
+ALTER TABLE payments ADD charge_attempted_at datetimeoffset(7) NULL;

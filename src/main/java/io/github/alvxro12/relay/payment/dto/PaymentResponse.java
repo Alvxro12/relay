@@ -10,7 +10,7 @@ public record PaymentResponse(
         PaymentStatus status,
         Long amount,
         String currency,
-        String reference,
+        String externalReference,
         Instant createdAt
 ) {
     public static PaymentResponse from(io.github.alvxro12.relay.payment.Payment payment) {
@@ -19,7 +19,7 @@ public record PaymentResponse(
                 payment.getStatus(),
                 payment.getAmount(),
                 payment.getCurrency(),
-                payment.getReference(),
+                payment.getExternalReference(),
                 payment.getCreatedAt()
         );
     }
