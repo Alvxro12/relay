@@ -14,6 +14,15 @@
 # En la practica no rompe nada —el mensaje que tome lo procesa con el mismo codigo—,
 # pero conviene dar de alta merchants con la aplicacion detenida.
 relay:
+  # La reconciliacion apagada. El @Scheduled dispara ni bien arranca el contexto, y desde que
+  # la reconciliacion escribe estado eso significa que dar de alta un merchant lanzaria una
+  # pasada entera —consultando al proveedor y resolviendo pagos— como efecto secundario.
+  # Mientras el job solo logueaba no importaba; ahora si. A diferencia de los listeners de
+  # Rabbit de mas arriba, este si se apaga desde el perfil: el bean entero es condicional.
+  reconciliation:
+    scheduler:
+      enabled: false
+
   provision:
     # Se pisa desde la linea de comandos:
     #   -Dspring-boot.run.arguments=--relay.provision.merchant-name=Acme

@@ -257,16 +257,15 @@ Los merchants se dan de alta con un runner de línea de comandos, no por API; el
 - Tests de integración con Awaitility cubriendo los 5 caminos de resultado
 - Entorno reproducible con Docker
 - Esquema versionado con Flyway (`ddl-auto: validate`, sin DDL manual)
-- Reconciliación — job programado que **detecta y escala**, no resuelve: busca pagos colgados en `UNKNOWN`, `PROCESSING` y `AWAITING_CONFIRMATION`, cada uno con su propio umbral, loguea un WARN por estado y los deja en `GET /payments/needs-review`. No reintenta el cobro: sin API de consulta al proveedor, recobrar arriesga cobrar dos veces.
+- Reconciliación — job programado que **pregunta, no reintenta**. Por cada pago colgado en `UNKNOWN`, `PROCESSING` o `AWAITING_CONFIRMATION` consulta `PaymentProvider.getPaymentStatus(paymentId)` y escribe el desenlace: `SUCCEEDED` y `FAILED` cierran el pago, `PENDING` lo pasa a `AWAITING_CONFIRMATION`, y `NOT_FOUND` autoriza `FAILED` **solo** pasada una ventana de gracia de 30 minutos desde el intento de cobro. Un `UNKNOWN` del proveedor no autoriza nada y **no escribe la fila**, para que el pago no salga de su propia ventana de staleness por haber sido mirado. Nunca llama a `charge()`: un pago colgado es, por definición, uno del que no se sabe si movió plata. Pasadas 24 horas desde el intento se deja de consultar y el pago queda para una persona en `GET /payments/needs-review`.
 - Webhooks — ingesta con verificación HMAC antes del 200, procesamiento asíncrono, idempotencia de eventos duplicados y guarda de estados terminales
 - Autenticación machine-to-machine (`client_credentials`) y aislamiento entre merchants — el `merchantId` sale del token y no de un header
 
 ### Próximo
 
-**Resolución de los pagos en revisión** — hoy el sistema los detecta, los escala y ahí se
-detienen: no hay nada que los saque de `UNKNOWN`, `PROCESSING` o `AWAITING_CONFIRMATION`.
-Para `PROCESSING` no reintentar es deliberado —el cobro pudo haber movido plata—, así que
-lo que falta es la contraparte operativa: una forma de que una persona cierre esos casos.
+**Cierre de la mensajería** — lo que falta no es construirla sino demostrarla: un test de un
+mensaje que efectivamente termina en la DLQ, poder saber cuántos hay ahí y poder inspeccionar
+uno, y resolver si los webhooks entrantes tienen o no protección contra replay por timestamp.
 
 ### Más adelante
 

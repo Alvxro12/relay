@@ -82,6 +82,32 @@ relay:
     not-found-grace: 30m
 
   reconciliation:
+    scheduler:
+      # Si el disparo periódico de la reconciliación corre. Encendido por defecto: un
+      # entorno que se olvide de esta propiedad tiene que quedar reconciliando, no en
+      # silencio. Se apaga en la corrida de tests (ver pom.xml), donde un job escribiendo
+      # de fondo mutaría las filas que un test de integración está mirando; ahí los tests
+      # llaman a StalePaymentResolver directo.
+      enabled: true
+
+    # Cuánto tiempo desde el intento de cobro se le sigue preguntando al proveedor por un
+    # pago colgado. Pasado esto se deja de consultar y queda para una persona, visible en
+    # GET /v1/payments/needs-review y en el WARN de cada ciclo. Es lo que separa "esperando"
+    # de "en limbo": un pago cuya consulta contesta UNKNOWN una y otra vez no se resuelve
+    # nunca solo, y sin este corte se consultaría para siempre.
+    #
+    # Rendirse no escribe nada en la fila: se mide contra charge_attempted_at, que es
+    # inmutable. Un contador de intentos movería updated_at y sacaría al pago de su propia
+    # ventana de staleness justo por haberlo mirado.
+    #
+    # 24h y no menos: tiene que ser mayor que provider.not-found-grace (30m), o el pago se
+    # rendiría antes de que un NOT_FOUND pueda autorizar el FAILED y ese camino no correría
+    # nunca; y mayor que stale-after.awaiting-confirmation (6h), o estaríamos escalando a
+    # revisión un pago que el otro umbral todavía considera normal. Además está en la unidad
+    # correcta: rendirse es entregarle el pago a una persona, y una persona lo mira al día
+    # siguiente.
+    give-up-after: 24h
+
     # Cuánto puede quedarse un pago en cada estado antes de contar como colgado. Un
     # umbral por estado porque los tres tardan cosas distintas por diseño: PROCESSING
     # dura lo que dura la llamada al proveedor (segundos), mientras que

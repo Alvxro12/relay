@@ -144,6 +144,19 @@
 							de los dos competirian por las mismas colas.
 						-->
 						<relay.sandbox.enabled>true</relay.sandbox.enabled>
+						<!--
+							Y el disparo periodico de la reconciliacion apagado. Desde que la
+							reconciliacion escribe estado, un job de fondo mutaria las filas que
+							un test de integracion esta mirando, y el fallo se veria como un test
+							intermitente que culpa a otra cosa. Alargar el intervalo no alcanza:
+							si la suite tarda mas que el intervalo, el job dispara igual.
+
+							Va aca por el mismo motivo que el sandbox —un set de properties
+							distinto por clase partiria el cache de contextos— y ademas porque
+							apagarlo con @ConditionalOnProperty por clase de test haria justo eso.
+							Los tests llaman a StalePaymentResolver directo.
+						-->
+						<relay.reconciliation.scheduler.enabled>false</relay.reconciliation.scheduler.enabled>
 					</systemPropertyVariables>
 				</configuration>
 			</plugin>
