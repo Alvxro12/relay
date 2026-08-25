@@ -3,16 +3,17 @@
 # El runner levanta el contexto completo de Spring para reusar el repositorio y el
 # PasswordEncoder, y sale apenas termina (unos 10 segundos).
 #
-# LIMITACION CONOCIDA: durante esos segundos los @RabbitListener de la aplicacion
-# estan activos y compiten por las colas con la instancia que este sirviendo. No se
-# apagan desde aca porque RabbitConfig construye sus SimpleRabbitListenerContainerFactory
-# con new, sin pasar por el configurer de Spring Boot, asi que la propiedad
-# spring.rabbitmq.listener.simple.auto-startup no le llega (verificado: los
-# containers arrancan igual). Arreglarlo es tocar RabbitConfig, que queda fuera del
-# alcance de este gate.
-#
-# En la practica no rompe nada —el mensaje que tome lo procesa con el mismo codigo—,
-# pero conviene dar de alta merchants con la aplicacion detenida.
+# Los @RabbitListener no arrancan. Antes si: RabbitConfig construia sus
+# SimpleRabbitListenerContainerFactory con new, sin pasar por el configurer de Spring
+# Boot, asi que auto-startup no le llegaba y los containers arrancaban igual —durante
+# esos diez segundos competian por las colas con la instancia que estuviera sirviendo.
+# Desde que RabbitConfig usa el configurer, la propiedad de abajo si tiene efecto.
+spring:
+  rabbitmq:
+    listener:
+      simple:
+        auto-startup: false
+
 relay:
   # La reconciliacion apagada. El @Scheduled dispara ni bien arranca el contexto, y desde que
   # la reconciliacion escribe estado eso significa que dar de alta un merchant lanzaria una

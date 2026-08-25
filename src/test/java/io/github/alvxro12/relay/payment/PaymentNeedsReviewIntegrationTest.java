@@ -7,8 +7,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
@@ -125,9 +125,17 @@ class PaymentNeedsReviewIntegrationTest extends AuthTestSupport {
         Payment saved = paymentRepository.saveAndFlush(payment);
 
         // updated_at lo maneja la auditoría de JPA, así que se fuerza por SQL directo.
+        //
+        // OffsetDateTime en UTC y no Timestamp: la columna es datetimeoffset, y un
+        // java.sql.Timestamp lo manda el driver como la hora local de la JVM etiquetada
+        // +00:00, así que el instante guardado queda corrido el offset de la máquina hacia
+        // atrás. Acá daba igual —este test solo pide "suficientemente viejo" y el corrimiento
+        // va justo en esa dirección— pero es la misma trampa que ya hizo fallar un test de la
+        // ventana de gracia, y sembrar mal la próxima aserción de ventana es cuestión de que
+        // alguien agregue una.
         jdbcTemplate.update(
                 "UPDATE payments SET updated_at = ? WHERE id = ?",
-                Timestamp.from(Instant.now().minus(age, unit)), saved.getId());
+                Instant.now().minus(age, unit).atOffset(ZoneOffset.UTC), saved.getId());
 
         return saved;
     }

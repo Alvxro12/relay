@@ -7,6 +7,7 @@ import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.retry.RejectAndDontRequeueRecoverer;
 import org.springframework.amqp.support.converter.JacksonJsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
+import org.springframework.boot.amqp.autoconfigure.SimpleRabbitListenerContainerFactoryConfigurer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -101,15 +102,37 @@ public class RabbitConfig {
         return new JacksonJsonMessageConverter();
     }
 
+    /**
+     * El orden de este método es el método.
+     *
+     * <p>Primero corre el configurer de Boot, que es lo que hace que las propiedades
+     * {@code spring.rabbitmq.listener.simple.*} —{@code auto-startup}, {@code prefetch},
+     * {@code concurrency}, {@code acknowledge-mode}— lleguen a la factory. Construir la
+     * factory con {@code new} y saltearse el configurer, que es lo que hacía antes, dejaba
+     * esas propiedades sin efecto y en silencio: se podían escribir en el YAML, arrancaba
+     * todo sin error, y no pasaba nada. El perfil {@code provision} venía documentando esto
+     * como limitación conocida desde el Gate 1.
+     *
+     * <p>Y después, encima, lo que es nuestro y no se negocia por configuración. El
+     * configurer solo pone una advice chain si {@code listener.simple.retry.enabled} está
+     * en true —por defecto no lo está—, así que la de acá no compite con nada; y si alguien
+     * enciende esa propiedad, la nuestra la pisa, que es lo correcto: el presupuesto de
+     * reintentos de este sistema está atado al comportamiento de los consumers, no a un
+     * default de infraestructura.
+     */
     @Bean
     public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(
-            ConnectionFactory connectionFactory, MessageConverter jsonMessageConverter) {
+            SimpleRabbitListenerContainerFactoryConfigurer configurer,
+            ConnectionFactory connectionFactory,
+            MessageConverter jsonMessageConverter) {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
-        factory.setConnectionFactory(connectionFactory);
+        configurer.configure(factory, connectionFactory);
         factory.setMessageConverter(jsonMessageConverter);
-        // Tras agotar los reintentos en memoria, el recoverer por defecto
-        // rechaza sin reencolar; junto con x-dead-letter-exchange en la cola,
-        // RabbitMQ lo enruta solo a la DLQ en vez de reintentar para siempre.
+        // Después del configurer a propósito: no es un tunable. El recoverer rechaza sin
+        // reencolar cuando se agotan los reintentos, y con requeue-rejected en true el
+        // mensaje volvería a la cola para siempre en vez de ir a la DLQ. Que la propiedad
+        // spring.rabbitmq.listener.simple.default-requeue-rejected no pueda cambiarlo es
+        // deliberado.
         factory.setDefaultRequeueRejected(false);
         factory.setAdviceChain(
                 RetryInterceptorBuilder.stateless()
@@ -120,13 +143,15 @@ public class RabbitConfig {
         return factory;
     }
 
+    /** Mismo orden y por los mismos motivos que {@link #rabbitListenerContainerFactory}. */
     @Bean
     public SimpleRabbitListenerContainerFactory webhookListenerContainerFactory(
+            SimpleRabbitListenerContainerFactoryConfigurer configurer,
             ConnectionFactory connectionFactory,
             MessageConverter jsonMessageConverter,
             WebhookProcessingRecoverer webhookProcessingRecoverer) {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
-        factory.setConnectionFactory(connectionFactory);
+        configurer.configure(factory, connectionFactory);
         factory.setMessageConverter(jsonMessageConverter);
         factory.setDefaultRequeueRejected(false);
         factory.setAdviceChain(
