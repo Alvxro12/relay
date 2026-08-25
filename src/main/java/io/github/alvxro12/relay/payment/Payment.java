@@ -1,6 +1,7 @@
 package io.github.alvxro12.relay.payment;
 
 import jakarta.persistence.*;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.NoArgsConstructor;
@@ -79,6 +80,25 @@ public class Payment {
     @Version
     private Long version;
 
+    /**
+     * Cuándo se llamó al proveedor. La ventana de gracia de NOT_FOUND se mide desde acá,
+     * así que moverla después del claim alargaría esa ventana sin que nadie lo note: el
+     * pago nunca la cumpliría y la reconciliación no lo resolvería nunca.
+     *
+     * <p>Se escribe una sola vez y la garantía la da {@link #markChargeAttempted}, no el
+     * mapeo. {@code @Column(updatable = false)} sería lo natural para esto y <b>no
+     * funciona acá</b>: el claim escribe sobre una fila que ya existe (PENDING a
+     * PROCESSING es un UPDATE), y {@code updatable = false} hace que Hibernate excluya la
+     * columna de ese UPDATE. El valor se descartaría en silencio y la columna quedaría
+     * siempre en NULL. Verificado.
+     *
+     * <p>Sin setter público a propósito: la única forma de escribirla es el método de
+     * abajo, que no pisa un valor existente.
+     */
+    @Setter(AccessLevel.NONE)
+    @Column(name = "charge_attempted_at")
+    private Instant chargeAttemptedAt;
+
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -86,4 +106,15 @@ public class Payment {
     @LastModifiedDate
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    /**
+     * Marca el intento de cobro. Escribe una sola vez: un segundo claim sobre el mismo
+     * pago —que hoy no puede pasar, porque el primero lo saca de PENDING— no movería la
+     * marca, y con ella la ventana de gracia.
+     */
+    public void markChargeAttempted(Instant attemptedAt) {
+        if (this.chargeAttemptedAt == null) {
+            this.chargeAttemptedAt = attemptedAt;
+        }
+    }
 }

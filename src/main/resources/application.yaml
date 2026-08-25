@@ -65,6 +65,22 @@ relay:
   sandbox:
     enabled: false
 
+  provider:
+    # Cuanto tiene que haber pasado desde el intento de cobro para que un NOT_FOUND del
+    # proveedor se pueda tomar como definitivo y autorice a dar el pago por fallido.
+    #
+    # Un proveedor real puede contestar NOT_FOUND por un cobro que todavia esta creando
+    # de su lado: sus lecturas no son inmediatamente consistentes con sus escrituras.
+    # Actuar sobre ese NOT_FOUND marca FAILED un pago que si cobro, y eso le hace perder
+    # plata al merchant. El error es brutalmente asimetrico —corto de mas pierde plata,
+    # largo de mas hace esperar— asi que el sesgo va largo.
+    #
+    # 30m y no 15m: la ventana se mide desde el intento de cobro, igual que
+    # reconciliation.stale-after.unknown. Con las dos en 15m la gracia vencia justo
+    # cuando la reconciliacion miraba el pago por primera vez, o sea que no habria
+    # frenado nada nunca.
+    not-found-grace: 30m
+
   reconciliation:
     # Cuánto puede quedarse un pago en cada estado antes de contar como colgado. Un
     # umbral por estado porque los tres tardan cosas distintas por diseño: PROCESSING

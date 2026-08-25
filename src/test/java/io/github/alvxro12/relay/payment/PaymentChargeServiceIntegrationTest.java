@@ -14,6 +14,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -128,6 +129,30 @@ class PaymentChargeServiceIntegrationTest {
                     .as("exactamente dos escrituras: el claim a PROCESSING y el resultado")
                     .isEqualTo(2L);
         });
+    }
+
+    /**
+     * El claim deja registrado cuando se llamo al proveedor. Sin esa marca, la ventana de
+     * gracia de NOT_FOUND no tiene desde donde medirse y no puede frenar nada.
+     */
+    @Test
+    void claim_recordsWhenTheChargeWasAttempted() {
+        Instant beforeCharge = Instant.now();
+
+        UUID merchantId = UUID.randomUUID();
+        String idempotencyKey = UUID.randomUUID().toString();
+        PaymentResult result = paymentService.createPayment(merchantId, idempotencyKey,
+                new CreatePaymentRequest(1000L, "USD", "charge-attempted-at"));
+        UUID paymentId = result.payment().getId();
+
+        await().atMost(TIMEOUT).pollInterval(POLL).untilAsserted(() ->
+                assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus())
+                        .isEqualTo(PaymentStatus.SUCCEEDED));
+
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getChargeAttemptedAt())
+                .as("el claim tiene que dejar la marca del intento de cobro")
+                .isNotNull()
+                .isAfterOrEqualTo(beforeCharge.minusSeconds(1));
     }
 
     /**
